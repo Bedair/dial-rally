@@ -5,13 +5,15 @@
 // Road renderer, back to front: grass verges, asphalt, kerbs and lane
 // markings scrolling with the distance driven, obstacles, the player's car
 // (with a shadow while jumping), score HUD, short-lived effects ("+10" coin
-// popup, milestone banner). Art is built from primitives; pixel-art sprites
-// follow in M6.
+// popup, milestone banner). Cars, coins, oil, roadblocks and roadside trees
+// are original pixel-art sprites (assets/sprites, built by tools/); the road,
+// effects and screens are drawn with primitives.
 //
 // Crash: white flash, explosion with debris and a decaying screen shake
 // (the frame is shifted with canvas scroll), then the results screen.
 
 #include <M5Dial.h>
+#include "display/Sprite.h"
 #include "game/GameEngine.h"
 
 class DisplayManager {
@@ -42,8 +44,8 @@ private:
     void drawBarrier(const Hazard& h);
     void drawOil(const Hazard& h);
     void drawCoin(const Hazard& h);
-    // Top-down car centred on (x, y), nose up. Used for the player and traffic.
-    void drawCar(int x, int y, uint16_t body, uint16_t stripe, bool faint);
+    // Sprite (assets/sprites via tools/png2rgb565.py) centred on (cx, cy).
+    void drawSprite(const Sprite& s, int cx, int cy, bool faint);
     void drawHud(uint32_t score, bool highlight);
     void drawEffects(uint32_t nowMs);
     void drawFrame();                                   // background for menu screens
@@ -55,6 +57,7 @@ private:
     uint32_t coinFxMs_ = 0;
     float coinFxX_ = 0;
     uint32_t milestoneFxMs_ = 0;
+    uint32_t frame_ = 0;          // frame counter for sprite animation (coin spin)
 
     M5Canvas canvas_{&M5Dial.Display};
 };

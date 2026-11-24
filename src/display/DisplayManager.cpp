@@ -1,10 +1,11 @@
 #include "display/DisplayManager.h"
+#include "display/sprites/Sprites.h"
 #include "config/GameConfig.h"
 #include <math.h>
 
 namespace {
 
-// Palette (RGB565).
+// Palette (RGB565) for everything drawn with primitives.
 constexpr uint16_t COL_GRASS = 0x2B25;        // verge
 constexpr uint16_t COL_GRASS_DARK = 0x22A4;   // mowing stripes
 constexpr uint16_t COL_ASPHALT = 0x39E8;
@@ -16,20 +17,13 @@ constexpr uint16_t COL_DIM = 0x8410;          // grey text
 constexpr uint16_t COL_ACCENT = 0xFEA0;       // yellow (titles, selection)
 constexpr uint16_t COL_PANEL = 0x18E3;        // overlay panel
 
-constexpr uint16_t COL_BARRIER = 0xF800;      // roadblock red, white stripes
-constexpr uint16_t COL_OIL = 0x10A3;          // near-black
-constexpr uint16_t COL_OIL_SHEEN = 0x41ED;    // purple sheen
-constexpr uint16_t COL_COIN = 0xFEA0;
-constexpr uint16_t COL_COIN_EDGE = 0xC4A0;
-
-constexpr uint16_t COL_PLAYER = 0xE8E4;       // red
+constexpr uint16_t COL_BARRIER = 0xF800;      // crash fireball red
+constexpr uint16_t COL_COIN = 0xFEA0;         // "+10" popup
+constexpr uint16_t COL_PLAYER = 0xE8E4;       // debris red
 constexpr uint16_t COL_SHADOW = 0x18C3;       // shadow under a jumping car
 constexpr uint16_t COL_FIRE = 0xFD20;         // explosion orange
 constexpr uint16_t COL_SMOKE = 0x52AA;        // grey smoke
 constexpr uint16_t COL_CAUSE = 0xFB2C;        // light red: what ended the run
-constexpr uint16_t COL_WINDOW = 0x1948;       // dark blue glass
-constexpr uint16_t COL_WHEEL = 0x0841;
-constexpr uint16_t TRAFFIC_COLS[] = {0x2B7F, 0xFE60, 0x4648};   // blue, yellow, green
 
 constexpr int CX = cfg::CENTER_X;
 constexpr int CY = cfg::CENTER_Y;
@@ -38,7 +32,21 @@ constexpr float LANE_W = ROAD_W / (float)cfg::ROAD_LANES;
 constexpr int INNER_LEFT = cfg::ROAD_LEFT + cfg::KERB_W;     // drivable asphalt
 constexpr int INNER_RIGHT = cfg::ROAD_RIGHT - cfg::KERB_W;
 
-// Half brightness: faint (telegraph) version of any colour.
+const Sprite* const TRAFFIC[] = {&spr::CAR_BLUE, &spr::CAR_YELLOW, &spr::CAR_GREEN};
+const Sprite* const COIN_FRAMES[] = {&spr::COIN_0, &spr::COIN_1, &spr::COIN_2, &spr::COIN_3};
+
+// Roadside trees and bushes. One slot every VERGE_SPACING px of road; the
+// pattern repeats every 9 x 80 = 720 px, the scroll wrap, so it never jumps.
+// x is the distance from the road edge (+ right verge, - left verge).
+constexpr int VERGE_SPACING = 80;
+constexpr int VERGE_SLOTS = 9;
+struct VergeItem { int8_t x; bool tree; };
+constexpr VergeItem VERGE[VERGE_SLOTS] = {
+    {18, true}, {-16, false}, {10, false}, {-22, true}, {24, false},
+    {-12, true}, {14, true}, {-20, false}, {20, false},
+};
+
+// Half brightness: faint version of any colour.
 inline uint16_t dim(uint16_t c) { return (c >> 1) & 0x7BEF; }
 
 }  // namespace
@@ -56,11 +64,18 @@ bool DisplayManager::begin() {
                   (int)canvas_.width(), (int)canvas_.height(), (int)canvas_.getColorDepth(),
                   (unsigned)ESP.getFreeHeap());
     canvas_.setTextDatum(middle_center);
+    canvas_.setSwapBytes(true);   // sprite data is native-order RGB565 (see Sprite.h)
     return ok;
 }
 
 void DisplayManager::push() {
     canvas_.pushSprite(0, 0);
+    frame_++;
+}
+
+// Sprite centred on (cx, cy); faint = the half-brightness copy.
+void DisplayManager::drawSprite(const Sprite& s, int cx, int cy, bool faint) {
+    canvas_.pushImage(cx - s.w / 2, cy - s.h / 2, s.w, s.h, faint ? s.dim : s.px, SPRITE_KEY);
 }
 
 // ---------------------------------------------------------------------------
@@ -82,7 +97,7 @@ void DisplayManager::drawArena(const GameEngine& g, bool showScore) {
         canvas_.fillRoundRect(px - cfg::CAR_W / 2 + 2, cfg::CAR_Y - cfg::CAR_H / 2 + 3,
                               cfg::CAR_W, cfg::CAR_H, 5, COL_SHADOW);
     }
-    drawCar(px, cfg::CAR_Y - (int)lroundf(lift), COL_PLAYER, COL_WHITE, false);
+    drawSprite(spr::CAR_PLAYER, px, cfg::CAR_Y - (int)lroundf(lift), false);
     if (showScore) drawHud(g.score(), milestoneFxMs_ != 0);
 }
 
@@ -95,6 +110,18 @@ void DisplayManager::drawRoad(float scroll) {
     const int gOff = (int)fmodf(scroll, 2.0f * GRASS_BAND);
     for (int y = gOff - 2 * GRASS_BAND; y < cfg::SCREEN_H; y += 2 * GRASS_BAND) {
         canvas_.fillRect(0, y, cfg::SCREEN_W, GRASS_BAND, COL_GRASS_DARK);
+    }
+
+    // Trees and bushes on the verges.
+    constexpr int VERGE_WRAP = VERGE_SPACING * VERGE_SLOTS;
+    const int vOff = (int)fmodf(scroll, (float)VERGE_WRAP);
+    for (int i = 0; i < VERGE_SLOTS; i++) {
+        int y = (vOff + i * VERGE_SPACING) % VERGE_WRAP - 20;    // -20 .. 699
+        if (y > cfg::SCREEN_H + 20) continue;
+        const VergeItem& v = VERGE[i];
+        const Sprite& s = v.tree ? spr::TREE : spr::BUSH;
+        const int x = v.x > 0 ? cfg::ROAD_RIGHT + v.x + s.w / 2 : cfg::ROAD_LEFT + v.x - s.w / 2;
+        drawSprite(s, x, y, false);
     }
 
     // Asphalt.
@@ -126,84 +153,45 @@ void DisplayManager::drawHazard(const Hazard& h) {
         case HazardType::Barrier: drawBarrier(h); break;
         case HazardType::Oil:     drawOil(h);     break;
         case HazardType::Coin:    drawCoin(h);    break;
-        case HazardType::Traffic: {
-            const uint16_t body = TRAFFIC_COLS[h.variant % 3];
-            drawCar((int)lroundf(h.x), (int)lroundf(h.y), body, COL_WHITE, !h.armed);
+        case HazardType::Traffic:
+            drawSprite(*TRAFFIC[h.variant % 3], (int)lroundf(h.x), (int)lroundf(h.y), !h.armed);
             break;
-        }
     }
 }
 
-// Roadblock: red/white striped blocks across the road, one gap left open.
+// Roadblock: striped barrier tiles across the road, one gap left open. Each
+// side is tiled from the road edge and clipped where the gap starts.
 void DisplayManager::drawBarrier(const Hazard& h) {
-    const int top = (int)lroundf(h.y) - cfg::BARRIER_H / 2;
+    const Sprite& t = spr::BARRIER;
+    const int top = (int)lroundf(h.y) - t.h / 2;
     const int gapL = (int)lroundf(h.x - h.w / 2);
     const int gapR = (int)lroundf(h.x + h.w / 2);
-    const uint16_t red = h.armed ? COL_BARRIER : dim(COL_BARRIER);
-    const uint16_t white = h.armed ? COL_WHITE : dim(COL_WHITE);
+    const uint16_t* px = h.armed ? t.px : t.dim;
 
     struct Span { int l, r; };
     const Span spans[] = {{INNER_LEFT, gapL}, {gapR, INNER_RIGHT}};
     for (const Span& s : spans) {
         if (s.r <= s.l) continue;
-        canvas_.fillRect(s.l, top, s.r - s.l, cfg::BARRIER_H, red);
-        for (int x = s.l + 3; x < s.r - 2; x += 8) {                 // stripes
-            canvas_.fillRect(x, top + 1, 3, cfg::BARRIER_H - 2, white);
-        }
-        canvas_.drawRect(s.l, top, s.r - s.l, cfg::BARRIER_H, COL_BLACK);
+        canvas_.setClipRect(s.l, top, s.r - s.l, t.h);
+        for (int x = s.l; x < s.r; x += t.w) canvas_.pushImage(x, top, t.w, t.h, px, SPRITE_KEY);
+        canvas_.clearClipRect();
     }
 }
 
-// Oil spill across the whole road, with a purple sheen. Faint = outline only.
+// Oil spill across the whole road: blob tiles, alternating two shapes.
 void DisplayManager::drawOil(const Hazard& h) {
-    const int top = (int)lroundf(h.y) - cfg::OIL_H / 2;
-    const int w = INNER_RIGHT - INNER_LEFT;
-    if (!h.armed) {
-        canvas_.drawRoundRect(INNER_LEFT, top, w, cfg::OIL_H, 8, COL_OIL);
-        return;
+    const int y = (int)lroundf(h.y);
+    const int tileW = spr::OIL_A.w;
+    int i = 0;
+    for (int x = INNER_LEFT + tileW / 2; x - tileW / 2 < INNER_RIGHT; x += tileW, i++) {
+        drawSprite(i % 2 ? spr::OIL_B : spr::OIL_A, x, y, !h.armed);
     }
-    canvas_.fillRoundRect(INNER_LEFT, top, w, cfg::OIL_H, 8, COL_OIL);
-    const int cy = top + cfg::OIL_H / 2;
-    canvas_.fillEllipse(INNER_LEFT + w / 4, cy - 2, 10, 2, COL_OIL_SHEEN);
-    canvas_.fillEllipse(INNER_LEFT + (w * 2) / 3, cy + 3, 14, 2, COL_OIL_SHEEN);
 }
 
+// Spinning coin: 4 frames, each coin's phase offset by its x position.
 void DisplayManager::drawCoin(const Hazard& h) {
-    const int x = (int)lroundf(h.x), y = (int)lroundf(h.y);
-    if (!h.armed) {
-        canvas_.fillCircle(x, y, cfg::COIN_R, dim(COL_COIN));
-        return;
-    }
-    canvas_.fillCircle(x, y, cfg::COIN_R, COL_COIN);
-    canvas_.drawCircle(x, y, cfg::COIN_R, COL_COIN_EDGE);
-    canvas_.drawCircle(x, y, cfg::COIN_R - 2, COL_COIN_EDGE);
-    canvas_.drawPixel(x - 2, y - 2, COL_WHITE);   // glint
-}
-
-// Top-down car, nose up: four wheels, body, windscreen, rear window and a
-// centre stripe. Sized by CAR_W × CAR_H.
-void DisplayManager::drawCar(int x, int y, uint16_t body, uint16_t stripe, bool faint) {
-    const int w = cfg::CAR_W, hgt = cfg::CAR_H;
-    const int l = x - w / 2, t = y - hgt / 2;
-    const uint16_t wheel = faint ? dim(COL_WHEEL) : COL_WHEEL;
-    const uint16_t bodyC = faint ? dim(body) : body;
-    const uint16_t glass = faint ? dim(COL_WINDOW) : COL_WINDOW;
-    const uint16_t stripeC = faint ? dim(stripe) : stripe;
-
-    // Wheels stick out 2 px on each side.
-    canvas_.fillRect(l - 2, t + 4, 3, 7, wheel);
-    canvas_.fillRect(l + w - 1, t + 4, 3, 7, wheel);
-    canvas_.fillRect(l - 2, t + hgt - 11, 3, 7, wheel);
-    canvas_.fillRect(l + w - 1, t + hgt - 11, 3, 7, wheel);
-
-    canvas_.fillRoundRect(l, t, w, hgt, 5, bodyC);
-    canvas_.fillRect(x - 1, t + 1, 3, hgt - 2, stripeC);              // racing stripe
-    canvas_.fillRoundRect(l + 3, t + 7, w - 6, 6, 2, glass);          // windscreen
-    canvas_.fillRect(l + 3, t + hgt - 9, w - 6, 4, glass);            // rear window
-    if (!faint) {
-        canvas_.drawPixel(l + 3, t + 1, COL_WHITE);                   // headlights
-        canvas_.drawPixel(l + w - 4, t + 1, COL_WHITE);
-    }
+    const int frame = (int)((frame_ / 5 + (uint32_t)h.x) % 4);
+    drawSprite(*COIN_FRAMES[frame], (int)lroundf(h.x), (int)lroundf(h.y), !h.armed);
 }
 
 // Score box at the top; highlighted (yellow frame + text) during a milestone.

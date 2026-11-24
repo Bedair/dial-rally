@@ -32,14 +32,28 @@ pio run -t upload
 pio device monitor
 ```
 
+## Art
+
+All sprites are original pixel art. The PNGs in `assets/sprites/` are the source; the firmware uses C++ headers generated from them (`src/display/sprites/`, committed so a plain `pio run` works).
+
+```bash
+pip install pillow
+python tools/make_sprites.py   # (re)draw the original sprites -> assets/sprites/*.png
+python tools/png2rgb565.py     # PNGs -> src/display/sprites/*.h (RGB565 + faint copy)
+```
+
+To change the art, edit a PNG in any pixel editor (keep its size; transparent pixels stay transparent) and run only `png2rgb565.py`. Running `make_sprites.py` again overwrites the PNGs with the drawn-in-code originals.
+
 ## Status
 
 - [x] M0 Knob input (encoder, button, touch)
 - [x] M1 Game skeleton (state machine, frame loop, frame-time logging)
 - [x] M2 Road renderer
 - [x] M3 Mechanics (collisions, jump, fair patterns)
-- [ ] M4 Scoring + difficulty curve + high score (in test)
-- [ ] M5 sound and feedback, M6 art pass, M7 validation
+- [x] M4 Scoring, difficulty curve, high score in NVS
+- [x] M5 Sound and feedback
+- [ ] M6 Art pass (in test)
+- [ ] M7 Validation
 - [ ] Hackster write-up
 
 ## License
