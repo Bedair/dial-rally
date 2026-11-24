@@ -4,12 +4,12 @@
 // Input (from IInputSource only, never hardware):
 //   Menu      knob = choose, press = confirm ("Play" / "High score")
 //   Ready     knob steers the car, countdown runs on its own
-//   Playing   knob steers the car, press = jump (M3), hold = pause
+//   Playing   knob steers the car, press = jump, hold = pause; a crash ends the run
 //   Paused    knob = choose, press = confirm ("Resume" / "End run")
 //   GameOver  knob = choose, press = confirm ("Play again" / "Menu"),
 //             presses ignored for GAMEOVER_INPUT_DELAY_MS after the crash
 //
-// Until collisions (M3) a run only ends via Paused -> "End run".
+// A run ends on a crash or via Paused -> "End run".
 // High score is kept in RAM until NVS storage (M4).
 
 #include <stdint.h>

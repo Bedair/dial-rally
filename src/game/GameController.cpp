@@ -44,8 +44,8 @@ void GameController::endRun(uint32_t nowMs) {
     const uint32_t score = engine_.score();
     newBest_ = score > best_;
     if (newBest_) best_ = score;
-    Serial.printf("[MQ] run over: score %lu, best %lu%s\n", (unsigned long)score,
-                  (unsigned long)best_, newBest_ ? " (new)" : "");
+    Serial.printf("[MQ] run over: score %lu, coins %lu, best %lu%s\n", (unsigned long)score,
+                  (unsigned long)engine_.coins(), (unsigned long)best_, newBest_ ? " (new)" : "");
     enter(GameState::GameOver, nowMs);
 }
 
@@ -90,8 +90,8 @@ void GameController::handle(const ActionEvent& ev, uint32_t nowMs) {
             if (ev.action == Action::Turn) {
                 engine_.steer(ev.steps);
             } else if (ev.action == Action::Press) {
-                if (cfg::DEBUG_LOG) Serial.printf("[MQ] jump (%s) - mechanics in M3\n",
-                                                  originName(ev.origin));
+                engine_.jump();
+                if (cfg::DEBUG_LOG) Serial.printf("[MQ] jump (%s)\n", originName(ev.origin));
             } else if (ev.action == Action::LongPress) {
                 enter(GameState::Paused, nowMs);
             }
@@ -132,6 +132,10 @@ void GameController::update(uint32_t nowMs, uint32_t dtMs) {
             break;
         case GameState::Playing:
             engine_.update(dtMs, true);
+            if (engine_.crashed()) {
+                Serial.printf("[MQ] crash: %s\n", engine_.crashCause());
+                endRun(nowMs);
+            }
             break;
         default:
             break;   // Menu, Paused, GameOver: the world is frozen

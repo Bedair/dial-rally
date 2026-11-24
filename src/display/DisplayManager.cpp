@@ -23,6 +23,7 @@ constexpr uint16_t COL_COIN = 0xFEA0;
 constexpr uint16_t COL_COIN_EDGE = 0xC4A0;
 
 constexpr uint16_t COL_PLAYER = 0xE8E4;       // red
+constexpr uint16_t COL_SHADOW = 0x18C3;       // shadow under a jumping car
 constexpr uint16_t COL_WINDOW = 0x1948;       // dark blue glass
 constexpr uint16_t COL_WHEEL = 0x0841;
 constexpr uint16_t TRAFFIC_COLS[] = {0x2B7F, 0xFE60, 0x4648};   // blue, yellow, green
@@ -70,7 +71,15 @@ void DisplayManager::drawArena(const GameEngine& g, bool showScore) {
         if (hz[i].active) drawHazard(hz[i]);
     }
 
-    drawCar((int)lroundf(g.player().drawX()), cfg::CAR_Y, COL_PLAYER, COL_WHITE, false);
+    // Player car. While jumping it rises and leaves a shadow on the road.
+    const Player& p = g.player();
+    const int px = (int)lroundf(p.drawX());
+    const float lift = p.jumpHeight() * cfg::JUMP_LIFT_PX;
+    if (lift > 0.5f) {
+        canvas_.fillRoundRect(px - cfg::CAR_W / 2 + 2, cfg::CAR_Y - cfg::CAR_H / 2 + 3,
+                              cfg::CAR_W, cfg::CAR_H, 5, COL_SHADOW);
+    }
+    drawCar(px, cfg::CAR_Y - (int)lroundf(lift), COL_PLAYER, COL_WHITE, false);
     if (showScore) drawHud(g.score());
 }
 

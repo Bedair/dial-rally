@@ -24,17 +24,18 @@ struct Hazard {
 
 class HazardField {
 public:
-    static constexpr int MAX = 12;
+    static constexpr int MAX = 16;
 
     void clear();
     // Starts an obstacle just above the screen. Returns nullptr if the pool is full.
     Hazard* spawn(HazardType type, float x, float w = 0.0f);
     // Moves every obstacle down. scrollPxPerS is the road speed; traffic moves
     // slower by trafficPxPerS. Returns how many obstacles (not coins) passed
-    // the car's line this frame (M2 placeholder scoring; M3 adds collisions).
+    // the car's line this frame: +1 score each.
     int update(uint32_t dtMs, float scrollPxPerS, float trafficPxPerS);
 
     const Hazard& operator[](int i) const { return pool_[i]; }
+    Hazard& operator[](int i) { return pool_[i]; }
 
 private:
     Hazard pool_[MAX];

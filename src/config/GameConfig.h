@@ -32,6 +32,13 @@ constexpr bool KNOB_REVERSE = false;
 // (The press-down before it still counts as a Press / jump.)
 constexpr uint32_t KNOB_HOLD_MS = 600;
 
+// Encoder glitch fix. When both encoder pins change between two interrupts,
+// the M5Dial driver counts ±2 and has to guess the direction; M0 logs showed
+// it guessing wrong (-2 while turning steadily clockwise). A ±2 against the
+// direction of a move less than this long ago is corrected to the same
+// direction. Real reversals of 2 clicks within one frame that fast are rare.
+constexpr uint32_t KNOB_GLITCH_WINDOW_MS = 100;
+
 // ---------------------------------------------------------------------------
 // Screen
 // ---------------------------------------------------------------------------
@@ -67,8 +74,16 @@ constexpr float KNOB_PX_PER_STEP = 4.0f;
 // Smaller = snappier, larger = smoother. Frame-rate independent.
 constexpr float EASE_TAU_MS = 35.0f;
 
+// Jump (press / tap): clears oil spills only; roadblocks and traffic still hit.
+constexpr uint32_t JUMP_MS = 600;
+constexpr float JUMP_LIFT_PX = 7.0f;         // how far the car sprite rises at the top
+
+// Collision forgiveness: hit boxes are this many px smaller on every side
+// than the drawn shapes, so a graze that looks clean is not a crash.
+constexpr float HITBOX_MARGIN = 2.0f;
+
 // ---------------------------------------------------------------------------
-// Obstacles (geometry; collisions follow in M3, difficulty in M4)
+// Obstacles (geometry; difficulty curve follows in M4)
 // ---------------------------------------------------------------------------
 constexpr float OBSTACLE_SPAWN_Y = -24.0f;   // start just above the screen
 constexpr float OBSTACLE_ARM_Y = 70.0f;      // faint above, solid below (telegraph)
@@ -79,11 +94,21 @@ constexpr int OIL_H = 18;                    // oil spill depth (jump over it)
 constexpr int TRAFFIC_W = 18, TRAFFIC_H = 30;
 constexpr int COIN_R = 5;
 
-// M2 demo spawner only (replaced by patterns in M3).
-constexpr uint32_t DEMO_SPAWN_MS = 1000;
-constexpr float DEMO_SPEED_PX_S = 120.0f;    // road scroll speed
-constexpr float DEMO_TRAFFIC_PX_S = 50.0f;   // traffic drives forward this fast
-constexpr float DEMO_GAP_PX = 44.0f;         // roadblock gap width
+// Speeds (constant in M3; the difficulty curve in M4 ramps them).
+constexpr float ROAD_SPEED_PX_S = 120.0f;    // road scroll speed
+constexpr float TRAFFIC_PX_S = 50.0f;        // traffic drives forward this fast
+constexpr float GAP_PX = 44.0f;              // roadblock gap width
+
+// ---------------------------------------------------------------------------
+// Patterns and fairness
+// ---------------------------------------------------------------------------
+// Obstacles come from predefined patterns (Patterns.cpp). Every obstacle is
+// placed so the car can reach a safe position in time, assuming the player
+// reacts within FAIR_REACTION_MS and then turns the knob at FAIR_STEPS_PER_S.
+constexpr float FAIR_STEPS_PER_S = 32.0f;    // half a knob turn per second
+constexpr uint32_t FAIR_REACTION_MS = 150;
+constexpr uint32_t PATTERN_GAP_MS = 700;     // breathing time between patterns
+constexpr uint32_t OIL_MIN_SPACING_MS = JUMP_MS + 300;   // so every oil can be jumped
 
 // ---------------------------------------------------------------------------
 // Frame loop

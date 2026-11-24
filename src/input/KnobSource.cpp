@@ -17,6 +17,20 @@ void KnobSource::update(uint32_t nowMs) {
     int32_t delta = raw - lastRaw_;
     lastRaw_ = raw;
     if (cfg::KNOB_REVERSE) delta = -delta;
+
+    if (delta != 0) {
+        const int8_t dir = delta > 0 ? 1 : -1;
+        const bool recent = nowMs - lastMoveMs_ < cfg::KNOB_GLITCH_WINDOW_MS;
+        if ((delta == 2 || delta == -2) && recent && lastDir_ != 0 && dir != lastDir_) {
+            delta = -delta;   // driver guessed the direction wrong
+            glitches_++;
+            if (cfg::DEBUG_LOG) Serial.printf("[MQ] knob: corrected %+ld glitch (#%lu)\n",
+                                              (long)-delta, (unsigned long)glitches_);
+        } else {
+            lastDir_ = dir;
+        }
+        lastMoveMs_ = nowMs;
+    }
     rawCount_ += delta;
 
     carry_ += delta;

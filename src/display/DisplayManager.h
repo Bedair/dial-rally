@@ -3,8 +3,9 @@
 // Every frame: one draw*() call, then push() sends the whole buffer at once.
 //
 // Road renderer (M2), back to front: grass verges, asphalt, kerbs and lane
-// markings scrolling with the distance driven, obstacles, the player's car,
-// score HUD. Art is built from primitives; pixel-art sprites follow in M6.
+// markings scrolling with the distance driven, obstacles, the player's car
+// (with a shadow while jumping), score HUD. Art is built from primitives;
+// pixel-art sprites follow in M6.
 
 #include <M5Dial.h>
 #include "game/GameEngine.h"

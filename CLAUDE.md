@@ -71,7 +71,7 @@ src/
   main.cpp
   config/GameConfig.h
   input/      Actions.h, KnobSource
-  game/       GameController, GameEngine, Player, Hazard
+  game/       GameController, GameEngine, Player, Hazard, Patterns
   display/    DisplayManager
   storage/    ScoreManager
   audio/      AudioManager

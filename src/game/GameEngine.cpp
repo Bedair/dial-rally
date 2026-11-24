@@ -1,21 +1,37 @@
 #include "game/GameEngine.h"
 #include "config/GameConfig.h"
 #include <Arduino.h>
+#include <math.h>
 
 namespace {
-constexpr float LANE_W = (cfg::ROAD_RIGHT - cfg::ROAD_LEFT) / (float)cfg::ROAD_LANES;
-inline float laneCentre(int lane) { return cfg::ROAD_LEFT + LANE_W * (lane + 0.5f); }
 // Road markings repeat every this many px, so scroll_ can wrap without a jump.
 constexpr float SCROLL_WRAP = (cfg::DASH_LEN + cfg::DASH_GAP) * (float)cfg::KERB_SEGMENT * 2;
+
+constexpr float M = cfg::HITBOX_MARGIN;
+constexpr float CAR_HALF_W = cfg::CAR_W / 2.0f - M;
+constexpr float CAR_TOP = cfg::CAR_Y - cfg::CAR_H / 2.0f + M;
+constexpr float CAR_BOTTOM = cfg::CAR_Y + cfg::CAR_H / 2.0f - M;
+
+// Half height of an obstacle's hit box.
+float halfHeight(HazardType t) {
+    switch (t) {
+        case HazardType::Barrier: return cfg::BARRIER_H / 2.0f - M;
+        case HazardType::Oil:     return cfg::OIL_H / 2.0f - M;
+        case HazardType::Traffic: return cfg::TRAFFIC_H / 2.0f - M;
+        case HazardType::Coin:    return cfg::COIN_R;
+    }
+    return 0;
 }
+}  // namespace
 
 void GameEngine::reset() {
     player_.reset();
     hazards_.clear();
-    score_ = 0;
+    timeMs_ = 0;
+    spawner_.reset(timeMs_);
+    score_ = coins_ = 0;
     scroll_ = 0.0f;
-    spawnTimerMs_ = 0;
-    demoIndex_ = 0;
+    crashCause_ = nullptr;
 }
 
 void GameEngine::steer(int32_t knobSteps) {
@@ -24,42 +40,47 @@ void GameEngine::steer(int32_t knobSteps) {
 
 void GameEngine::update(uint32_t dtMs, bool world) {
     player_.update(dtMs);
-    if (!world) return;
+    if (!world || crashed()) return;
 
-    scroll_ += cfg::DEMO_SPEED_PX_S * dtMs / 1000.0f;
+    timeMs_ += dtMs;
+    scroll_ += cfg::ROAD_SPEED_PX_S * dtMs / 1000.0f;
     if (scroll_ >= SCROLL_WRAP) scroll_ -= SCROLL_WRAP;
 
-    spawnTimerMs_ += dtMs;
-    if (spawnTimerMs_ >= cfg::DEMO_SPAWN_MS) {
-        spawnTimerMs_ -= cfg::DEMO_SPAWN_MS;
-        demoSpawn();
-    }
-    score_ += hazards_.update(dtMs, cfg::DEMO_SPEED_PX_S, cfg::DEMO_TRAFFIC_PX_S);
+    // Move first, then spawn: new obstacles are placed for the current time.
+    score_ += hazards_.update(dtMs, cfg::ROAD_SPEED_PX_S, cfg::TRAFFIC_PX_S);
+    spawner_.update(timeMs_, hazards_);
+    checkCollisions();
 }
 
-// M2 only: replaced by fair predefined patterns in M3.
-void GameEngine::demoSpawn() {
-    static const HazardType order[] = {HazardType::Barrier, HazardType::Coin, HazardType::Oil,
-                                       HazardType::Traffic};
-    const HazardType t = order[demoIndex_++ % 4];
-    switch (t) {
-        case HazardType::Barrier: {
-            const float half = cfg::DEMO_GAP_PX / 2;
-            const float x = random((long)(cfg::ROAD_LEFT + cfg::KERB_W + half),
-                                   (long)(cfg::ROAD_RIGHT - cfg::KERB_W - half));
-            hazards_.spawn(t, x, cfg::DEMO_GAP_PX);
-            break;
+// Uses the knob's target x (see Player.h) and slightly shrunk hit boxes.
+void GameEngine::checkCollisions() {
+    const float px = player_.targetX();
+    for (int i = 0; i < HazardField::MAX; i++) {
+        Hazard& h = hazards_[i];
+        if (!h.active || !h.armed) continue;
+        const float hh = halfHeight(h.type);
+        if (h.y + hh < CAR_TOP || h.y - hh > CAR_BOTTOM) continue;   // no vertical overlap
+
+        switch (h.type) {
+            case HazardType::Barrier:
+                if (px - CAR_HALF_W < h.x - h.w / 2 || px + CAR_HALF_W > h.x + h.w / 2)
+                    crashCause_ = "roadblock";
+                break;
+            case HazardType::Oil:
+                if (!player_.airborne()) crashCause_ = "oil";
+                break;
+            case HazardType::Traffic:
+                if (fabsf(px - h.x) < cfg::TRAFFIC_W / 2.0f - M + CAR_HALF_W)
+                    crashCause_ = "traffic";
+                break;
+            case HazardType::Coin:
+                if (fabsf(px - h.x) < cfg::COIN_R + CAR_HALF_W) {
+                    coins_++;
+                    h.active = false;
+                    if (cfg::DEBUG_LOG) Serial.printf("[MQ] coin (%lu)\n", (unsigned long)coins_);
+                }
+                break;
         }
-        case HazardType::Traffic: {
-            Hazard* h = hazards_.spawn(t, laneCentre(random(cfg::ROAD_LANES)));
-            if (h) h->variant = random(3);
-            break;
-        }
-        case HazardType::Coin:
-            hazards_.spawn(t, laneCentre(random(cfg::ROAD_LANES)));
-            break;
-        case HazardType::Oil:
-            hazards_.spawn(t, (cfg::ROAD_LEFT + cfg::ROAD_RIGHT) / 2.0f);
-            break;
+        if (crashed()) return;
     }
 }
