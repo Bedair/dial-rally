@@ -32,9 +32,7 @@ void GameController::enter(GameState s, uint32_t nowMs) {
             showBest_ = false;
             break;
         case GameState::Ready:            // new run
-            player_.reset(0.0f);
-            playMs_ = 0;
-            score_ = 0;
+            engine_.reset();
             newBest_ = false;
             break;
         default:
@@ -43,9 +41,10 @@ void GameController::enter(GameState s, uint32_t nowMs) {
 }
 
 void GameController::endRun(uint32_t nowMs) {
-    newBest_ = score_ > best_;
-    if (newBest_) best_ = score_;
-    Serial.printf("[MQ] run over: score %lu, best %lu%s\n", (unsigned long)score_,
+    const uint32_t score = engine_.score();
+    newBest_ = score > best_;
+    if (newBest_) best_ = score;
+    Serial.printf("[MQ] run over: score %lu, best %lu%s\n", (unsigned long)score,
                   (unsigned long)best_, newBest_ ? " (new)" : "");
     enter(GameState::GameOver, nowMs);
 }
@@ -84,12 +83,12 @@ void GameController::handle(const ActionEvent& ev, uint32_t nowMs) {
             break;
 
         case GameState::Ready:
-            if (ev.action == Action::Turn) player_.turn(ev.angleDeg);
+            if (ev.action == Action::Turn) engine_.steer(ev.steps);
             break;
 
         case GameState::Playing:
             if (ev.action == Action::Turn) {
-                player_.turn(ev.angleDeg);
+                engine_.steer(ev.steps);
             } else if (ev.action == Action::Press) {
                 if (cfg::DEBUG_LOG) Serial.printf("[MQ] jump (%s) - mechanics in M3\n",
                                                   originName(ev.origin));
@@ -128,13 +127,11 @@ void GameController::update(uint32_t nowMs, uint32_t dtMs) {
 
     switch (state_) {
         case GameState::Ready:
-            player_.update(dtMs);
+            engine_.update(dtMs, false);   // car steers, road waits
             if (nowMs - stateSinceMs_ >= 3 * cfg::READY_STEP_MS) enter(GameState::Playing, nowMs);
             break;
         case GameState::Playing:
-            player_.update(dtMs);
-            playMs_ += dtMs;
-            score_ = playMs_ / 1000;   // M1 placeholder until hazards (M3) score points
+            engine_.update(dtMs, true);
             break;
         default:
             break;   // Menu, Paused, GameOver: the world is frozen
@@ -149,17 +146,17 @@ void GameController::render(uint32_t nowMs) {
             break;
         case GameState::Ready: {
             const int count = 3 - (int)((nowMs - stateSinceMs_) / cfg::READY_STEP_MS);
-            display_.drawReady(player_, score_, count < 1 ? 1 : count);
+            display_.drawReady(engine_, count < 1 ? 1 : count);
             break;
         }
         case GameState::Playing:
-            display_.drawPlaying(player_, score_);
+            display_.drawPlaying(engine_);
             break;
         case GameState::Paused:
-            display_.drawPaused(player_, score_, selected_);
+            display_.drawPaused(engine_, selected_);
             break;
         case GameState::GameOver:
-            display_.drawGameOver(score_, best_, newBest_, selected_);
+            display_.drawGameOver(engine_.score(), best_, newBest_, selected_);
             break;
     }
 }

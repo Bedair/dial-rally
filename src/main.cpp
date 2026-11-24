@@ -1,4 +1,4 @@
-// The Lost Temple – an arcade game in a single knob (M5Stack Dial).
+// Dial Rally – an arcade racing game in a single knob (M5Stack Dial).
 //
 // main.cpp only wires the modules together and runs the frame loop:
 //   KnobSource (input) -> GameController (state machine) -> DisplayManager (canvas)
@@ -30,7 +30,7 @@ void setup() {
     lastFrameMs = millis();
     game.begin(lastFrameMs);
     stats.begin(lastFrameMs);
-    Serial.printf("[MQ] The Lost Temple ready, %.3f deg/step\n", cfg::KNOB_DEG_PER_STEP);
+    Serial.printf("[MQ] Dial Rally ready, %.1f px/step\n", cfg::KNOB_PX_PER_STEP);
 }
 
 void loop() {

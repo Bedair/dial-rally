@@ -6,7 +6,7 @@
 
 enum class Action : uint8_t {
     None,
-    Turn,        // knob moved: see ActionEvent::steps / angleDeg
+    Turn,        // knob moved: see ActionEvent::steps
     Press,       // BtnA or touch tap: Jump while playing, Confirm in menus
     LongPress,   // BtnA held (diagnostics / later: reset high score)
 };
@@ -19,7 +19,7 @@ struct ActionEvent {
     Origin origin = Origin::Knob;
     uint32_t timestampMs = 0;   // millis() when the source reported it
     int32_t steps = 0;          // Turn only: signed encoder steps since the last Turn
-    float angleDeg = 0.0f;      // Turn only: steps × KNOB_DEG_PER_STEP (+ = clockwise)
+                                // (+ = clockwise); the game decides what a step means
 };
 
 inline const char* actionName(Action a) {

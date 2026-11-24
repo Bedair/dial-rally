@@ -1,18 +1,19 @@
 #pragma once
-// The explorer on the rim. The knob moves the target angle; the drawn angle
-// eases toward it so movement looks smooth even though the knob has detents.
-// Collisions (M3) use targetAngle(), drawing uses drawAngle().
+// The player's car. The knob moves the target x position; the drawn x eases
+// toward it so steering looks smooth even though the knob has detents.
+// Collisions (M3) use targetX(), drawing uses drawX(). The car's y is fixed
+// (CAR_Y): the road moves, not the car.
 
 #include <stdint.h>
 
 class Player {
 public:
-    void reset(float angleDeg = 0.0f);
-    void turn(float deltaDeg);          // from Action::Turn
-    void update(uint32_t dtMs);         // easing
+    void reset();                      // centre of the road
+    void steer(float deltaPx);         // from Action::Turn, clamped to the road
+    void update(uint32_t dtMs);        // easing
 
-    float targetAngle() const { return target_; }
-    float drawAngle() const { return draw_; }
+    float targetX() const { return target_; }
+    float drawX() const { return draw_; }
 
 private:
     float target_ = 0.0f;

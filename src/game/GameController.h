@@ -3,20 +3,19 @@
 //
 // Input (from IInputSource only, never hardware):
 //   Menu      knob = choose, press = confirm ("Play" / "High score")
-//   Ready     knob moves the explorer, countdown runs on its own
-//   Playing   knob moves the explorer, press = jump (M3), hold = pause
+//   Ready     knob steers the car, countdown runs on its own
+//   Playing   knob steers the car, press = jump (M3), hold = pause
 //   Paused    knob = choose, press = confirm ("Resume" / "End run")
 //   GameOver  knob = choose, press = confirm ("Play again" / "Menu"),
 //             presses ignored for GAMEOVER_INPUT_DELAY_MS after the crash
 //
-// M1: no hazards yet, so a run only ends via Paused -> "End run", and the
-// score is a placeholder (+1 per second played). High score is kept in RAM
-// until NVS storage (M4).
+// Until collisions (M3) a run only ends via Paused -> "End run".
+// High score is kept in RAM until NVS storage (M4).
 
 #include <stdint.h>
 #include "input/Actions.h"
 #include "display/DisplayManager.h"
-#include "game/Player.h"
+#include "game/GameEngine.h"
 
 enum class GameState : uint8_t { Menu, Ready, Playing, Paused, GameOver };
 
@@ -42,7 +41,7 @@ private:
 
     IInputSource& input_;
     DisplayManager& display_;
-    Player player_;
+    GameEngine engine_;
 
     GameState state_ = GameState::Menu;
     uint32_t stateSinceMs_ = 0;
@@ -51,8 +50,6 @@ private:
     int32_t scrollAccum_ = 0;     // knob steps not yet worth a menu move
     bool showBest_ = false;       // Menu sub-screen "High score"
 
-    uint32_t playMs_ = 0;         // time spent in Playing (frozen while paused)
-    uint32_t score_ = 0;
     uint32_t best_ = 0;
     bool newBest_ = false;
 };

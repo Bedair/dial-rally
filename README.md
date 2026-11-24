@@ -1,17 +1,25 @@
-# Motion Quest – The Lost Temple
+# Dial Rally
 
-A temple-runner game built for a round screen and played without touching anything.
+A whole arcade game in a single knob.
 
-An explorer runs around a circular temple corridor on the M5Stack Dial's round display. Swipe up over the gesture sensor to jump, swipe down to duck. Entry for the Hackster.io **Junk Drawer Competition 2026** (Game & Fame).
+A top-down car race on the M5Stack Dial's round display. The road rushes toward you: turn the knob to steer through gaps in roadblocks and around slower traffic, press the Dial to jump over oil spills, and grab coins on the way. No extra sensors, no cables: just the Dial.
+
+Entry for the Hackster.io **Junk Drawer Competition 2026** (Game & Fame).
 
 ## Hardware
 
 | Part | Role |
 |---|---|
-| M5Stack Dial (ESP32-S3) | Game console: round 240×240 display, encoder, button, buzzer |
-| M5Stack Gesture Unit (PAJ7620U2) | Jump / duck input, on PORT.A (I2C, 0x73) |
-| M5Stack Vibrator Hat | Crash haptics, on PORT.B |
-| 3D-printed stone-tablet enclosure | Housing, gesture sensor mounted as the "temple eye" |
+| M5Stack Dial (ESP32-S3) | The whole console: round 240×240 display, rotary encoder (steer), front button (jump / pause), touchscreen (jump), buzzer |
+| 3D-printed enclosure | Housing (no electronics) |
+
+## Controls
+
+| Input | Action |
+|---|---|
+| Turn the knob | Steer left / right, choose in menus |
+| Press the Dial or tap the screen | Jump over oil / confirm |
+| Hold the Dial ~0.6 s | Pause |
 
 ## Build
 
@@ -26,10 +34,10 @@ pio device monitor
 
 ## Status
 
-- [x] Repository scaffold and bring-up sketch (display, encoder, button)
-- [ ] Day 0: gesture sensor test with latency logging
-- [ ] Ring-runner game engine
-- [ ] Enclosure, haptics, sound
+- [x] M0 Knob input (encoder, button, touch)
+- [x] M1 Game skeleton (state machine, frame loop, frame-time logging)
+- [ ] M2 Road renderer (in test)
+- [ ] M3 Mechanics, M4 scoring, M5 sound and feedback, M6 art pass, M7 validation
 - [ ] Hackster write-up
 
 ## License

@@ -50,7 +50,6 @@ bool KnobSource::poll(ActionEvent& out) {
         out.action = Action::Turn;
         out.origin = Origin::Knob;
         out.steps = pendingSteps_;
-        out.angleDeg = pendingSteps_ * cfg::KNOB_DEG_PER_STEP;
         pendingSteps_ = 0;
         return true;
     }

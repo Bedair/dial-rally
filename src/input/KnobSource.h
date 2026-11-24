@@ -1,6 +1,6 @@
 #pragma once
 // The Dial itself as an input source:
-//   rotary encoder -> Turn (signed steps + angle delta)
+//   rotary encoder -> Turn (signed steps)
 //   BtnA press     -> Press (origin Button), fires on press-down for low latency
 //   touch tap      -> Press (origin Touch), alternative jump
 //   BtnA hold      -> LongPress (after KNOB_HOLD_MS; a Press was already sent)
