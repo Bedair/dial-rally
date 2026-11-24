@@ -22,11 +22,14 @@ public:
     bool airborne() const { return jumping_; }
     // 0 on the ground, rising to 1 at the top of the jump and back to 0.
     float jumpHeight() const;
+    // True once after each take-off (also a buffered one), for the jump sound.
+    bool takeOff() { const bool t = tookOff_; tookOff_ = false; return t; }
 
 private:
     float target_ = 0.0f;
     float draw_ = 0.0f;
     bool jumping_ = false;
     bool jumpBuffered_ = false;
+    bool tookOff_ = false;
     uint32_t jumpMs_ = 0;              // time since the current jump started
 };

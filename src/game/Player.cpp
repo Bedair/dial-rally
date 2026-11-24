@@ -10,7 +10,7 @@ constexpr float PI_F = 3.14159265f;
 
 void Player::reset() {
     target_ = draw_ = (cfg::ROAD_LEFT + cfg::ROAD_RIGHT) / 2.0f;
-    jumping_ = jumpBuffered_ = false;
+    jumping_ = jumpBuffered_ = tookOff_ = false;
     jumpMs_ = 0;
 }
 
@@ -24,7 +24,7 @@ void Player::steer(float deltaPx) {
 
 void Player::jump() {
     if (!jumping_) {
-        jumping_ = true;
+        jumping_ = tookOff_ = true;
         jumpMs_ = 0;
     } else {
         jumpBuffered_ = true;          // at most one, extra presses are ignored
@@ -41,6 +41,7 @@ void Player::update(uint32_t dtMs) {
         jumpMs_ += dtMs;
         if (jumpMs_ >= cfg::JUMP_MS) {
             jumping_ = jumpBuffered_;  // buffered press: take off again at once
+            tookOff_ = tookOff_ || jumpBuffered_;
             jumpBuffered_ = false;
             jumpMs_ = 0;
         }

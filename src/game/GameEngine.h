@@ -17,6 +17,15 @@
 
 #include <stdint.h>
 #include "game/Player.h"
+
+// Things that happened during update(), for sound and visual feedback.
+// Read and cleared with GameEngine::takeEvents().
+enum GameEvent : uint8_t {
+    EV_JUMP = 1 << 0,        // the car took off
+    EV_COIN = 1 << 1,
+    EV_MILESTONE = 1 << 2,
+    EV_CRASH = 1 << 3,
+};
 #include "game/Hazard.h"
 #include "game/Patterns.h"
 
@@ -39,6 +48,9 @@ public:
     // Distance driven in px, wrapped; the renderer scrolls road markings with it.
     float scroll() const { return scroll_; }
 
+    // Events since the last call (bit set of GameEvent).
+    uint8_t takeEvents() { const uint8_t e = events_; events_ = 0; return e; }
+
     bool crashed() const { return crashCause_ != nullptr; }
     const char* crashCause() const { return crashCause_; }       // for the log
     const char* crashPattern() const { return crashPattern_; }   // pattern of the obstacle hit
@@ -54,6 +66,7 @@ private:
     uint32_t coins_ = 0;
     uint32_t milestones_ = 0;
     float scroll_ = 0.0f;
+    uint8_t events_ = 0;
     const char* crashCause_ = nullptr;
     const char* crashPattern_ = "";
 };

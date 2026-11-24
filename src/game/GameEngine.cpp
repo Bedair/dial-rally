@@ -32,6 +32,7 @@ void GameEngine::reset() {
     spawner_.reset(timeMs_);
     passed_ = coins_ = milestones_ = 0;
     scroll_ = 0.0f;
+    events_ = 0;
     crashCause_ = nullptr;
     crashPattern_ = "";
 }
@@ -50,8 +51,10 @@ float GameEngine::roadSpeed() const {
 }
 
 void GameEngine::update(uint32_t dtMs, bool world) {
+    if (crashed()) return;                 // frozen for the crash animation
     player_.update(dtMs);
-    if (!world || crashed()) return;
+    if (player_.takeOff()) events_ |= EV_JUMP;
+    if (!world) return;
 
     timeMs_ += dtMs;
     const float dist = difficulty::distancePx(timeMs_);
@@ -61,10 +64,12 @@ void GameEngine::update(uint32_t dtMs, bool world) {
     passed_ += hazards_.update(timeMs_, dist);
     spawner_.update(timeMs_, dist, hazards_);
     checkCollisions();
+    if (crashed()) events_ |= EV_CRASH;
 
     // Milestone bonus every MILESTONE_EVERY obstacles.
     while (passed_ >= (milestones_ + 1) * cfg::MILESTONE_EVERY) {
         milestones_++;
+        events_ |= EV_MILESTONE;
         if (cfg::DEBUG_LOG)
             Serial.printf("[MQ] milestone %lu: +%lu, speed %.0f px/s, gap %.0f px\n",
                           (unsigned long)milestones_, (unsigned long)cfg::MILESTONE_BONUS,
@@ -97,6 +102,7 @@ void GameEngine::checkCollisions() {
                 if (fabsf(px - h.x) < cfg::COIN_R + CAR_HALF_W) {
                     coins_++;
                     h.active = false;
+                    events_ |= EV_COIN;
                     if (cfg::DEBUG_LOG) Serial.printf("[MQ] coin (%lu)\n", (unsigned long)coins_);
                 }
                 break;

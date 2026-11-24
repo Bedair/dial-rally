@@ -12,11 +12,13 @@
 #include "display/FrameStats.h"
 #include "game/GameController.h"
 #include "storage/ScoreManager.h"
+#include "audio/AudioManager.h"
 
 static KnobSource knob;
 static DisplayManager display;
 static ScoreManager scores;
-static GameController game(knob, display, scores);
+static AudioManager audio;
+static GameController game(knob, display, scores, audio);
 static FrameStats stats;
 
 static uint32_t lastFrameMs = 0;
@@ -30,6 +32,7 @@ void setup() {
     display.begin();
     knob.begin();
     scores.begin();
+    audio.begin();
     lastFrameMs = millis();
     game.begin(lastFrameMs);
     stats.begin(lastFrameMs);

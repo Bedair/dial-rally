@@ -24,6 +24,9 @@ constexpr uint16_t COL_COIN_EDGE = 0xC4A0;
 
 constexpr uint16_t COL_PLAYER = 0xE8E4;       // red
 constexpr uint16_t COL_SHADOW = 0x18C3;       // shadow under a jumping car
+constexpr uint16_t COL_FIRE = 0xFD20;         // explosion orange
+constexpr uint16_t COL_SMOKE = 0x52AA;        // grey smoke
+constexpr uint16_t COL_CAUSE = 0xFB2C;        // light red: what ended the run
 constexpr uint16_t COL_WINDOW = 0x1948;       // dark blue glass
 constexpr uint16_t COL_WHEEL = 0x0841;
 constexpr uint16_t TRAFFIC_COLS[] = {0x2B7F, 0xFE60, 0x4648};   // blue, yellow, green
@@ -80,7 +83,7 @@ void DisplayManager::drawArena(const GameEngine& g, bool showScore) {
                               cfg::CAR_W, cfg::CAR_H, 5, COL_SHADOW);
     }
     drawCar(px, cfg::CAR_Y - (int)lroundf(lift), COL_PLAYER, COL_WHITE, false);
-    if (showScore) drawHud(g.score());
+    if (showScore) drawHud(g.score(), milestoneFxMs_ != 0);
 }
 
 // Everything that scrolls uses `scroll` (px driven) modulo its own period,
@@ -203,11 +206,57 @@ void DisplayManager::drawCar(int x, int y, uint16_t body, uint16_t stripe, bool 
     }
 }
 
-void DisplayManager::drawHud(uint32_t score) {
+// Score box at the top; highlighted (yellow frame + text) during a milestone.
+void DisplayManager::drawHud(uint32_t score, bool highlight) {
     canvas_.fillRoundRect(CX - 28, 12, 56, 24, 10, COL_BLACK);
+    if (highlight) canvas_.drawRoundRect(CX - 28, 12, 56, 24, 10, COL_ACCENT);
     canvas_.setFont(&fonts::Font4);
-    canvas_.setTextColor(COL_WHITE);
+    canvas_.setTextColor(highlight ? COL_ACCENT : COL_WHITE);
     canvas_.drawNumber(score, CX, 25);
+}
+
+// ---------------------------------------------------------------------------
+// Effects
+// ---------------------------------------------------------------------------
+void DisplayManager::fxCoin(float carX, uint32_t nowMs) {
+    coinFxMs_ = nowMs ? nowMs : 1;
+    coinFxX_ = carX;
+}
+
+void DisplayManager::fxMilestone(uint32_t nowMs) {
+    milestoneFxMs_ = nowMs ? nowMs : 1;
+}
+
+void DisplayManager::drawEffects(uint32_t nowMs) {
+    // "+10" rising from the car, fading out.
+    if (coinFxMs_) {
+        const uint32_t t = nowMs - coinFxMs_;
+        if (t >= cfg::COIN_POPUP_MS) {
+            coinFxMs_ = 0;
+        } else {
+            const float k = (float)t / cfg::COIN_POPUP_MS;
+            const int y = cfg::CAR_Y - cfg::CAR_H / 2 - 8 - (int)(22 * k);
+            canvas_.setFont(&fonts::Font2);
+            canvas_.setTextColor(k < 0.6f ? COL_COIN : dim(COL_COIN));
+            char txt[8];
+            snprintf(txt, sizeof(txt), "+%lu", (unsigned long)cfg::POINTS_PER_COIN);
+            canvas_.drawString(txt, (int)coinFxX_, y);
+        }
+    }
+    // Milestone banner under the score, blinking at first.
+    if (milestoneFxMs_) {
+        const uint32_t t = nowMs - milestoneFxMs_;
+        if (t >= cfg::MILESTONE_BANNER_MS) {
+            milestoneFxMs_ = 0;
+        } else if (t > 400 || (t / 100) % 2 == 0) {
+            canvas_.fillRoundRect(CX - 50, 42, 100, 22, 8, COL_ACCENT);
+            canvas_.setFont(&fonts::FreeSansBold9pt7b);
+            canvas_.setTextColor(COL_BLACK);
+            char txt[16];
+            snprintf(txt, sizeof(txt), "+%lu BONUS", (unsigned long)cfg::MILESTONE_BONUS);
+            canvas_.drawString(txt, CX, 53);
+        }
+    }
 }
 
 void DisplayManager::drawFrame() {
@@ -295,8 +344,57 @@ void DisplayManager::drawReady(const GameEngine& g, int count) {
     canvas_.drawNumber(count, CX, CY - 10);
 }
 
-void DisplayManager::drawPlaying(const GameEngine& g) {
+void DisplayManager::drawPlaying(const GameEngine& g, uint32_t nowMs) {
     drawArena(g, true);
+    drawEffects(nowMs);
+}
+
+// The road freezes; a white flash, then an explosion with flying debris at
+// the car, "CRASH!", and a screen shake that decays to zero.
+void DisplayManager::drawCrash(const GameEngine& g, uint32_t sinceMs) {
+    if (sinceMs < cfg::CRASH_FLASH_MS) {
+        canvas_.fillScreen(COL_WHITE);
+        return;
+    }
+    coinFxMs_ = milestoneFxMs_ = 0;
+    drawArena(g, true);
+
+    const float k = (float)sinceMs / cfg::CRASH_ANIM_MS;          // 0..1
+    const int x = (int)lroundf(g.player().drawX()), y = cfg::CAR_Y;
+
+    // Debris: 10 fragments flying outward on fixed directions.
+    for (int i = 0; i < 10; i++) {
+        const float a = i * 0.628f + 0.3f;                        // ~36° apart
+        const float d = 10 + 70 * k * (0.6f + 0.4f * ((i * 7) % 5) / 4.0f);
+        const int fx = x + (int)(cosf(a) * d), fy = y + (int)(sinf(a) * d * 0.8f);
+        canvas_.fillRect(fx - 1, fy - 1, 3, 3, i % 2 ? COL_PLAYER : COL_DIM);
+    }
+    // Fireball, then smoke.
+    if (k < 0.45f) {
+        const int r = 8 + (int)(40 * k);
+        canvas_.fillCircle(x, y, r, COL_BARRIER);
+        canvas_.fillCircle(x, y, r * 2 / 3, COL_FIRE);
+        canvas_.fillCircle(x, y, r / 3, COL_WHITE);
+    } else {
+        const int r = 26 + (int)(16 * k);
+        canvas_.fillCircle(x, y, r, COL_SMOKE);
+        canvas_.drawCircle(x, y, r, dim(COL_SMOKE));
+    }
+    if (sinceMs > 250) {
+        canvas_.fillRoundRect(CX - 56, 86, 112, 34, 10, COL_BLACK);
+        canvas_.setFont(&fonts::FreeSansBold12pt7b);
+        canvas_.setTextColor(COL_BARRIER);
+        canvas_.drawString("CRASH!", CX, 103);
+    }
+
+    // Shake: shift the finished frame; scroll fills the uncovered edge black.
+    if (sinceMs < cfg::SHAKE_MS) {
+        const float amp = cfg::SHAKE_PX * (1.0f - (float)sinceMs / cfg::SHAKE_MS);
+        const uint32_t step = sinceMs / 16;                       // changes every frame
+        const int dx = (step % 2 ? 1 : -1) * (int)lroundf(amp);
+        const int dy = (int)((step * 7) % 3) - 1;
+        canvas_.scroll(dx, dy * (int)lroundf(amp * 0.6f));
+    }
 }
 
 void DisplayManager::drawPaused(const GameEngine& g, int selected) {
@@ -309,24 +407,47 @@ void DisplayManager::drawPaused(const GameEngine& g, int selected) {
     drawOptions(items, 2, selected, 122);
 }
 
-void DisplayManager::drawGameOver(uint32_t score, uint32_t best, bool newBest, int selected) {
+// Results: what ended the run, the score, best / new high score (blinking),
+// and the run's stats, then Play again / Menu.
+void DisplayManager::drawGameOver(const GameEngine& g, uint32_t best, bool newBest, int selected,
+                                  uint32_t nowMs) {
     drawFrame();
-    canvas_.fillRoundRect(36, 30, 168, 122, 14, COL_BLACK);
-    canvas_.setFont(&fonts::FreeSansBold12pt7b);
+    drawChequers(14);
+    canvas_.fillRoundRect(30, 28, 180, 134, 14, COL_BLACK);
+
+    canvas_.setFont(&fonts::FreeSansBold9pt7b);
     canvas_.setTextColor(COL_ACCENT);
-    canvas_.drawString("GAME OVER", CX, 50);
+    canvas_.drawString("GAME OVER", CX, 42);
+
+    const char* cause = g.crashCause();
+    const char* why = !cause                       ? "run ended"
+                    : cause[0] == 'r'              ? "hit a roadblock"
+                    : cause[0] == 'o'              ? "slipped on oil"
+                                                   : "crashed into traffic";
+    canvas_.setFont(&fonts::Font2);
+    canvas_.setTextColor(COL_CAUSE);
+    canvas_.drawString(why, CX, 60);
 
     canvas_.setFont(&fonts::Font7);
     canvas_.setTextColor(COL_WHITE);
-    canvas_.drawNumber(score, CX, 98);
+    canvas_.drawNumber(g.score(), CX, 98);
 
     canvas_.setFont(&fonts::Font2);
-    canvas_.setTextColor(newBest ? COL_ACCENT : COL_DIM);
-    char line[32];
-    if (newBest) snprintf(line, sizeof(line), "NEW HIGH SCORE!");
-    else         snprintf(line, sizeof(line), "best %lu", (unsigned long)best);
-    canvas_.drawString(line, CX, 136);
+    char line[40];
+    if (newBest) {
+        const bool on = (nowMs / 300) % 2 == 0;
+        canvas_.setTextColor(on ? COL_ACCENT : COL_WHITE);
+        canvas_.drawString("NEW HIGH SCORE!", CX, 134);
+    } else {
+        canvas_.setTextColor(COL_DIM);
+        snprintf(line, sizeof(line), "best %lu", (unsigned long)best);
+        canvas_.drawString(line, CX, 134);
+    }
+    canvas_.setTextColor(COL_DIM);
+    snprintf(line, sizeof(line), "%lu passed  %lu coins  %lus", (unsigned long)g.passed(),
+             (unsigned long)g.coins(), (unsigned long)(g.timeMs() / 1000));
+    canvas_.drawString(line, CX, 151);
 
     static const char* const items[] = {"Play again", "Menu"};
-    drawOptions(items, 2, selected, 172);
+    drawOptions(items, 2, selected, 182);
 }

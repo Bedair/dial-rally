@@ -135,6 +135,20 @@ constexpr uint32_t FRAME_MS = 16;    // ~60 fps cap; game target is >= 30 fps
 // ---------------------------------------------------------------------------
 constexpr int32_t MENU_STEPS_PER_ITEM = 3;          // knob steps to move one menu item
 constexpr uint32_t READY_STEP_MS = 700;             // each of 3-2-1
-constexpr uint32_t GAMEOVER_INPUT_DELAY_MS = 600;   // ignore presses right after a crash
+// After a crash the explosion plays for CRASH_ANIM_MS, then the game-over
+// panel appears; presses are ignored until GAMEOVER_INPUT_DELAY_MS after
+// that, so a jump press during the crash cannot skip the results.
+constexpr uint32_t CRASH_ANIM_MS = 1000;
+constexpr uint32_t GAMEOVER_INPUT_DELAY_MS = 400;
+
+// ---------------------------------------------------------------------------
+// Feedback (M5)
+// ---------------------------------------------------------------------------
+constexpr uint8_t SPEAKER_VOLUME = 110;      // 0..255; the buzzer is loud, keep it moderate
+constexpr uint32_t CRASH_FLASH_MS = 70;      // white flash at the moment of impact
+constexpr float SHAKE_PX = 7.0f;             // screen shake at impact, decays to 0
+constexpr uint32_t SHAKE_MS = 450;
+constexpr uint32_t COIN_POPUP_MS = 500;      // "+10" rising from the car
+constexpr uint32_t MILESTONE_BANNER_MS = 1300;
 
 }  // namespace cfg
