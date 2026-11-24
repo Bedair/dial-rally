@@ -37,7 +37,7 @@ Hook: "A whole arcade game in a single knob."
 - Fairness: hazards come from predefined patterns. The angle change between consecutive gaps is limited to what the knob can reach at the current speed. Never generate an impossible sequence.
 - Difficulty: ring speed increases, spawn interval shrinks and gap width narrows over time, with caps in GameConfig.h.
 - Scoring: +1 per hazard survived, +10 per coin, milestone bonus every 25 hazards. High score stored in NVS via Preferences.
-- States: Menu (title, Play, High score; knob navigates, press confirms) → Ready (3-2-1) → Playing → Paused (press during play) → GameOver (score, high score, press to restart).
+- States: Menu (title, Play, High score; knob navigates, press confirms) → Ready (3-2-1) → Playing → Paused (hold BtnA during play, KNOB_HOLD_MS; press = jump) → GameOver (score, high score, press to restart).
 
 ### Rendering and audio
 - Draw each frame into one 240×240 M5Canvas and push once per frame. Allocate the canvas once at startup; log free heap. If 16-bit allocation fails, fall back to 8-bit colour.

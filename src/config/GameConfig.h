@@ -7,13 +7,19 @@
 namespace cfg {
 
 // ---------------------------------------------------------------------------
+// Debug
+// ---------------------------------------------------------------------------
+constexpr bool DEBUG_LOG = true;             // frame-time stats + state changes on serial
+constexpr uint32_t FRAME_STATS_MS = 5000;    // frame-time log interval
+
+// ---------------------------------------------------------------------------
 // Knob (rotary encoder) and button
 // ---------------------------------------------------------------------------
-// Raw quadrature counts grouped into one "step". Set after the M0 measurement:
-// if one detent (click) gives N counts, set this to N so 1 step = 1 click.
+// Raw quadrature counts grouped into one "step". M0 logs: 1 count per detent.
 constexpr int32_t ENCODER_COUNTS_PER_STEP = 1;
 
-// Measured in M0 (hold BtnA, turn one full turn, hold again). Placeholder.
+// Steps per full knob turn. M0 logs are consistent with 64, but the hold
+// measurement is still open (see M0 notes).
 constexpr int32_t ENCODER_STEPS_PER_TURN = 64;
 
 // How far the explorer moves around the rim per step, in degrees.
@@ -24,7 +30,9 @@ constexpr float KNOB_DEG_PER_STEP = 360.0f / ENCODER_STEPS_PER_TURN;
 // counter-clockwise on screen.
 constexpr bool KNOB_REVERSE = false;
 
-constexpr uint32_t KNOB_HOLD_MS = 1000;   // BtnA held this long = LongPress
+// BtnA held this long = LongPress = pause while playing.
+// (The press-down before it still counts as a Press / jump.)
+constexpr uint32_t KNOB_HOLD_MS = 600;
 
 // ---------------------------------------------------------------------------
 // Explorer movement
@@ -44,7 +52,7 @@ constexpr int CENTER_Y = 120;
 constexpr int RIM_RADIUS = 106;      // centre line of the rim track
 constexpr int RIM_WIDTH = 14;        // track thickness
 constexpr int ALTAR_RADIUS = 38;     // centre circle
-constexpr int EXPLORER_RADIUS = 7;   // M0 test dot
+constexpr int EXPLORER_RADIUS = 7;   // placeholder dot until the sprite (M2/M6)
 
 // ---------------------------------------------------------------------------
 // Frame loop
@@ -52,13 +60,10 @@ constexpr int EXPLORER_RADIUS = 7;   // M0 test dot
 constexpr uint32_t FRAME_MS = 16;    // ~60 fps cap; game target is >= 30 fps
 
 // ---------------------------------------------------------------------------
-// M0 test feedback
+// Game flow
 // ---------------------------------------------------------------------------
-constexpr uint32_t FLASH_MS = 150;
-constexpr uint16_t BEEP_PRESS_HZ = 2400;
-constexpr uint16_t BEEP_TOUCH_HZ = 1800;
-constexpr uint16_t BEEP_HOLD_HZ = 900;
-constexpr uint32_t BEEP_MS = 40;
-constexpr uint8_t SPEAKER_VOLUME = 128;   // 0..255
+constexpr int32_t MENU_STEPS_PER_ITEM = 3;          // knob steps to move one menu item
+constexpr uint32_t READY_STEP_MS = 700;             // each of 3-2-1
+constexpr uint32_t GAMEOVER_INPUT_DELAY_MS = 600;   // ignore presses right after a crash
 
 }  // namespace cfg
