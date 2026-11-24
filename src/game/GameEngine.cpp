@@ -1,10 +1,11 @@
 #include "game/GameEngine.h"
+#include "game/Difficulty.h"
 #include "config/GameConfig.h"
 #include <Arduino.h>
 #include <math.h>
 
 namespace {
-// Road markings repeat every this many px, so scroll_ can wrap without a jump.
+// Road markings repeat every this many px, so the scroll can wrap without a jump.
 constexpr float SCROLL_WRAP = (cfg::DASH_LEN + cfg::DASH_GAP) * (float)cfg::KERB_SEGMENT * 2;
 
 constexpr float M = cfg::HITBOX_MARGIN;
@@ -29,13 +30,23 @@ void GameEngine::reset() {
     hazards_.clear();
     timeMs_ = 0;
     spawner_.reset(timeMs_);
-    score_ = coins_ = 0;
+    passed_ = coins_ = milestones_ = 0;
     scroll_ = 0.0f;
     crashCause_ = nullptr;
+    crashPattern_ = "";
 }
 
 void GameEngine::steer(int32_t knobSteps) {
     player_.steer(knobSteps * cfg::KNOB_PX_PER_STEP);
+}
+
+uint32_t GameEngine::score() const {
+    return passed_ * cfg::POINTS_PER_OBSTACLE + coins_ * cfg::POINTS_PER_COIN +
+           milestones_ * cfg::MILESTONE_BONUS;
+}
+
+float GameEngine::roadSpeed() const {
+    return difficulty::roadSpeed(timeMs_);
 }
 
 void GameEngine::update(uint32_t dtMs, bool world) {
@@ -43,13 +54,22 @@ void GameEngine::update(uint32_t dtMs, bool world) {
     if (!world || crashed()) return;
 
     timeMs_ += dtMs;
-    scroll_ += cfg::ROAD_SPEED_PX_S * dtMs / 1000.0f;
-    if (scroll_ >= SCROLL_WRAP) scroll_ -= SCROLL_WRAP;
+    const float dist = difficulty::distancePx(timeMs_);
+    scroll_ = fmodf(dist, SCROLL_WRAP);
 
     // Move first, then spawn: new obstacles are placed for the current time.
-    score_ += hazards_.update(dtMs, cfg::ROAD_SPEED_PX_S, cfg::TRAFFIC_PX_S);
-    spawner_.update(timeMs_, hazards_);
+    passed_ += hazards_.update(timeMs_, dist);
+    spawner_.update(timeMs_, dist, hazards_);
     checkCollisions();
+
+    // Milestone bonus every MILESTONE_EVERY obstacles.
+    while (passed_ >= (milestones_ + 1) * cfg::MILESTONE_EVERY) {
+        milestones_++;
+        if (cfg::DEBUG_LOG)
+            Serial.printf("[MQ] milestone %lu: +%lu, speed %.0f px/s, gap %.0f px\n",
+                          (unsigned long)milestones_, (unsigned long)cfg::MILESTONE_BONUS,
+                          difficulty::roadSpeed(timeMs_), difficulty::gapPx(timeMs_));
+    }
 }
 
 // Uses the knob's target x (see Player.h) and slightly shrunk hit boxes.
@@ -81,6 +101,9 @@ void GameEngine::checkCollisions() {
                 }
                 break;
         }
-        if (crashed()) return;
+        if (crashed()) {
+            crashPattern_ = h.pattern;
+            return;
+        }
     }
 }

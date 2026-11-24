@@ -36,8 +36,10 @@ pio device monitor
 
 - [x] M0 Knob input (encoder, button, touch)
 - [x] M1 Game skeleton (state machine, frame loop, frame-time logging)
-- [ ] M2 Road renderer (in test)
-- [ ] M3 Mechanics, M4 scoring, M5 sound and feedback, M6 art pass, M7 validation
+- [x] M2 Road renderer
+- [x] M3 Mechanics (collisions, jump, fair patterns)
+- [ ] M4 Scoring + difficulty curve + high score (in test)
+- [ ] M5 sound and feedback, M6 art pass, M7 validation
 - [ ] Hackster write-up
 
 ## License

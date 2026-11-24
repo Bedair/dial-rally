@@ -83,7 +83,7 @@ constexpr float JUMP_LIFT_PX = 7.0f;         // how far the car sprite rises at 
 constexpr float HITBOX_MARGIN = 2.0f;
 
 // ---------------------------------------------------------------------------
-// Obstacles (geometry; difficulty curve follows in M4)
+// Obstacles (geometry)
 // ---------------------------------------------------------------------------
 constexpr float OBSTACLE_SPAWN_Y = -24.0f;   // start just above the screen
 constexpr float OBSTACLE_ARM_Y = 70.0f;      // faint above, solid below (telegraph)
@@ -94,10 +94,25 @@ constexpr int OIL_H = 18;                    // oil spill depth (jump over it)
 constexpr int TRAFFIC_W = 18, TRAFFIC_H = 30;
 constexpr int COIN_R = 5;
 
-// Speeds (constant in M3; the difficulty curve in M4 ramps them).
-constexpr float ROAD_SPEED_PX_S = 120.0f;    // road scroll speed
 constexpr float TRAFFIC_PX_S = 50.0f;        // traffic drives forward this fast
-constexpr float GAP_PX = 44.0f;              // roadblock gap width
+
+// ---------------------------------------------------------------------------
+// Difficulty curve (Difficulty.h): linear from START to the cap over the ramp
+// ---------------------------------------------------------------------------
+constexpr uint32_t DIFF_RAMP_MS = 150000;    // 2.5 min to full difficulty
+constexpr float ROAD_SPEED_START = 120.0f;   // road speed, px/s
+constexpr float ROAD_SPEED_MAX = 210.0f;
+constexpr float GAP_START_PX = 46.0f;        // roadblock gap width
+constexpr float GAP_MIN_PX = 34.0f;          // car hit box is 14 px wide: 10 px slack each side
+constexpr float SPACING_MIN_SCALE = 0.55f;   // time between pattern steps shrinks to 55 %
+
+// ---------------------------------------------------------------------------
+// Scoring
+// ---------------------------------------------------------------------------
+constexpr uint32_t POINTS_PER_OBSTACLE = 1;  // each obstacle that passes the car
+constexpr uint32_t POINTS_PER_COIN = 10;
+constexpr uint32_t MILESTONE_EVERY = 25;     // obstacles
+constexpr uint32_t MILESTONE_BONUS = 50;
 
 // ---------------------------------------------------------------------------
 // Patterns and fairness
@@ -107,7 +122,7 @@ constexpr float GAP_PX = 44.0f;              // roadblock gap width
 // reacts within FAIR_REACTION_MS and then turns the knob at FAIR_STEPS_PER_S.
 constexpr float FAIR_STEPS_PER_S = 32.0f;    // half a knob turn per second
 constexpr uint32_t FAIR_REACTION_MS = 150;
-constexpr uint32_t PATTERN_GAP_MS = 700;     // breathing time between patterns
+constexpr uint32_t PATTERN_GAP_MS = 700;     // breathing time between patterns (× spacingScale)
 constexpr uint32_t OIL_MIN_SPACING_MS = JUMP_MS + 300;   // so every oil can be jumped
 
 // ---------------------------------------------------------------------------

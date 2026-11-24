@@ -1,32 +1,29 @@
 #include "game/Hazard.h"
+#include "game/Difficulty.h"
 #include "config/GameConfig.h"
 
 void HazardField::clear() {
     for (Hazard& h : pool_) h.active = false;
 }
 
-Hazard* HazardField::spawn(HazardType type, float x, float w) {
+Hazard* HazardField::spawn(const Hazard& proto, uint32_t tMs, float dist) {
     for (Hazard& h : pool_) {
         if (h.active) continue;
-        h = Hazard{};
+        h = proto;
         h.active = true;
-        h.type = type;
-        h.y = cfg::OBSTACLE_SPAWN_Y;
-        h.x = x;
-        h.w = w;
+        h.passed = false;
+        h.y = difficulty::obstacleY(h.type, h.arrivalMs, h.arrivalDist, tMs, dist);
+        h.armed = h.y >= cfg::OBSTACLE_ARM_Y;
         return &h;
     }
     return nullptr;
 }
 
-int HazardField::update(uint32_t dtMs, float scrollPxPerS, float trafficPxPerS) {
+int HazardField::update(uint32_t tMs, float dist) {
     int passedCar = 0;
-    const float dt = dtMs / 1000.0f;
     for (Hazard& h : pool_) {
         if (!h.active) continue;
-        const float speed = h.type == HazardType::Traffic ? scrollPxPerS - trafficPxPerS
-                                                          : scrollPxPerS;
-        h.y += speed * dt;
+        h.y = difficulty::obstacleY(h.type, h.arrivalMs, h.arrivalDist, tMs, dist);
         h.armed = h.y >= cfg::OBSTACLE_ARM_Y;
         if (!h.passed && h.y >= cfg::CAR_Y) {
             h.passed = true;

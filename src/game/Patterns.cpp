@@ -1,4 +1,5 @@
 #include "game/Patterns.h"
+#include "game/Difficulty.h"
 #include "config/GameConfig.h"
 #include <Arduino.h>
 #include <math.h>
@@ -16,10 +17,6 @@ constexpr float INNER_R = cfg::ROAD_RIGHT - cfg::KERB_W;
 constexpr float CAR_HALF = cfg::CAR_W / 2.0f - cfg::HITBOX_MARGIN;      // car hit box
 constexpr float MIN_X = INNER_L + cfg::CAR_W / 2.0f;                    // car centre limits
 constexpr float MAX_X = INNER_R - cfg::CAR_W / 2.0f;
-constexpr float GATE_MIN = INNER_L + cfg::GAP_PX / 2;                   // gap centre limits
-constexpr float GATE_MAX = INNER_R - cfg::GAP_PX / 2;
-// The car fits through a gap when |x - gapCentre| <= GATE_SLACK.
-constexpr float GATE_SLACK = cfg::GAP_PX / 2 - CAR_HALF;
 // The car clears a traffic car when |x - trafficX| >= TRAFFIC_CLEAR.
 constexpr float TRAFFIC_CLEAR = cfg::TRAFFIC_W / 2.0f - cfg::HITBOX_MARGIN + CAR_HALF;
 
@@ -29,14 +26,15 @@ constexpr uint32_t COIN_SPACING_MS = 160;
 inline float laneX(int lane) { return cfg::ROAD_LEFT + LANE_W * (lane + 0.5f); }
 inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
-// ---------------------------------------------------------------------------
-// Timing: how fast each type comes down, how long it overlaps the car's line
-// ---------------------------------------------------------------------------
-float speedOf(HazardType t) {
-    return t == HazardType::Traffic ? cfg::ROAD_SPEED_PX_S - cfg::TRAFFIC_PX_S
-                                    : cfg::ROAD_SPEED_PX_S;
-}
+// Gap centre limits and slack for a roadblock gap of width w: the car fits
+// through when |x - gapCentre| <= slack.
+inline float gateMin(float w) { return INNER_L + w / 2; }
+inline float gateMax(float w) { return INNER_R - w / 2; }
+inline float gateSlack(float w) { return w / 2 - CAR_HALF; }
 
+// ---------------------------------------------------------------------------
+// Timing: how long things take at the speed of the moment
+// ---------------------------------------------------------------------------
 float heightOf(HazardType t) {
     switch (t) {
         case HazardType::Barrier: return cfg::BARRIER_H;
@@ -47,20 +45,23 @@ float heightOf(HazardType t) {
     return 0;
 }
 
-// From spawn line to the car's line, ms.
-uint32_t travelMs(HazardType t) {
-    return (uint32_t)((cfg::CAR_Y - cfg::OBSTACLE_SPAWN_Y) * 1000.0f / speedOf(t));
+// From the spawn line to the car's line at the speed of time tMs, ms. The
+// speed changes only slightly within one travel time, so this is close enough
+// for planning; spawning itself uses the exact position (obstacleY).
+uint32_t travelMs(HazardType t, uint32_t tMs) {
+    return (uint32_t)((cfg::CAR_Y - cfg::OBSTACLE_SPAWN_Y) * 1000.0f /
+                      difficulty::approachSpeed(t, tMs));
 }
 
-// Half of the time the obstacle's box overlaps the car's box vertically, ms.
-uint32_t halfWindowMs(HazardType t) {
+// Half of the time the obstacle's hit box overlaps the car's vertically, ms.
+uint32_t halfWindowMs(HazardType t, uint32_t tMs) {
     const float overlapPx = (cfg::CAR_H + heightOf(t)) / 2.0f - 2 * cfg::HITBOX_MARGIN;
-    return (uint32_t)(overlapPx * 1000.0f / speedOf(t));
+    return (uint32_t)(overlapPx * 1000.0f / difficulty::approachSpeed(t, tMs));
 }
 
-// Plan this far ahead: the slowest obstacle (traffic) must be planned before
-// it has to appear at the top.
-const uint32_t LOOKAHEAD_MS = travelMs(HazardType::Traffic) + 800;
+// Plan this far ahead: the slowest obstacle (traffic at the start speed) must
+// be planned before it has to appear at the top.
+const uint32_t LOOKAHEAD_MS = travelMs(HazardType::Traffic, 0) + 800;
 
 // Free x region for the car centre when traffic cars sit at the given lanes.
 int freeSpans(const int* lanes, int n, Span out[3]) {
@@ -100,7 +101,7 @@ constexpr int8_t SAME = -2;   // same gap position as the previous gate
 struct Step {
     Kind kind;
     int8_t lane;        // Gate: gap lane; Car: traffic lane; Wall: the FREE lane; Coins: lane
-    uint16_t afterMs;   // gap after the previous step's window ends
+    uint16_t afterMs;   // gap after the previous step's window ends (× spacingScale)
 };
 struct Pattern {
     const char* name;
@@ -135,27 +136,24 @@ void PatternSpawner::reset(uint32_t timeMs) {
     queued_ = 0;
     // Start planning one full traffic travel time ahead, so the first
     // obstacles of every type appear at the top, never mid-screen.
-    planEndMs_ = timeMs + travelMs(HazardType::Traffic);
+    planEndMs_ = timeMs + travelMs(HazardType::Traffic, timeMs);
     // The player can drive anywhere until the first window: assume the worst.
     safe_ = {MIN_X, MAX_X};
     lastGateX_ = laneX(1);
     lastStaticArrivalMs_ = lastOilArrivalMs_ = 0;
     lastPattern_ = -1;
+    patternName_ = "";
 }
 
-void PatternSpawner::update(uint32_t timeMs, HazardField& field) {
+void PatternSpawner::update(uint32_t timeMs, float dist, HazardField& field) {
     while (planEndMs_ < timeMs + LOOKAHEAD_MS && queued_ < QUEUE - 6) planPattern();
 
     for (int i = 0; i < queued_;) {
-        Event& e = queue_[i];
-        const uint32_t travel = travelMs(e.type);
-        if (timeMs + travel < e.arrivalMs) { i++; continue; }     // not yet
-        Hazard* h = field.spawn(e.type, e.x, e.w);
-        if (!h) { i++; continue; }                                 // pool full, retry
-        // Place it exactly where it must be to arrive on time.
-        h->y = cfg::CAR_Y - speedOf(e.type) * (float)(e.arrivalMs - timeMs) / 1000.0f;
-        h->variant = e.variant;
-        queue_[i] = queue_[--queued_];                             // remove (order not needed)
+        const Hazard& e = queue_[i];
+        const float y = difficulty::obstacleY(e.type, e.arrivalMs, e.arrivalDist, timeMs, dist);
+        if (y < cfg::OBSTACLE_SPAWN_Y) { i++; continue; }    // not on screen yet
+        if (!field.spawn(e, timeMs, dist)) { i++; continue; } // pool full, retry
+        queue_[i] = queue_[--queued_];                         // remove (order not needed)
     }
 }
 
@@ -166,11 +164,13 @@ void PatternSpawner::planPattern() {
     int p;
     do { p = random(NUM_PATTERNS); } while (p == lastPattern_);
     lastPattern_ = p;
-    if (cfg::DEBUG_LOG) Serial.printf("[MQ] pattern %s\n", PATTERNS[p].name);
+    patternName_ = PATTERNS[p].name;
+    if (cfg::DEBUG_LOG) Serial.printf("[MQ] plan %s\n", patternName_);
 
     for (int i = 0; i < PATTERNS[p].count; i++) {
         const Step& s = PATTERNS[p].steps[i];
-        const uint16_t after = i == 0 ? cfg::PATTERN_GAP_MS : s.afterMs;
+        const uint16_t base = i == 0 ? cfg::PATTERN_GAP_MS : s.afterMs;
+        const uint16_t after = (uint16_t)(base * difficulty::spacingScale(planEndMs_));
         switch (s.kind) {
             case Kind::Gate:  planGate(s.lane, after);           break;
             case Kind::Car:   planTraffic(s.lane, false, after); break;
@@ -185,24 +185,26 @@ void PatternSpawner::planPattern() {
 // toward the player until every possible position can reach it in time.
 void PatternSpawner::planGate(int8_t lane, uint16_t afterMs) {
     uint32_t start = planEndMs_ + afterMs;
-    float g = lane == ANY  ? (float)random((long)GATE_MIN, (long)GATE_MAX + 1)
+    const float w = difficulty::gapPx(start);
+    const float gMin = gateMin(w), gMax = gateMax(w), slack = gateSlack(w);
+    float g = lane == ANY  ? (float)random((long)gMin, (long)gMax + 1)
             : lane == SAME ? lastGateX_
                            : laneX(lane);
-    g = clampf(g, GATE_MIN, GATE_MAX);
-    const float toward = clampf((safe_.l + safe_.r) / 2, GATE_MIN, GATE_MAX);
+    g = clampf(g, gMin, gMax);
+    const float toward = clampf((safe_.l + safe_.r) / 2, gMin, gMax);
 
     Span d;
     float need = 0;
     for (int i = 0; i < 60; i++) {
-        d = {clampf(g - GATE_SLACK, MIN_X, MAX_X), clampf(g + GATE_SLACK, MIN_X, MAX_X)};
+        d = {clampf(g - slack, MIN_X, MAX_X), clampf(g + slack, MIN_X, MAX_X)};
         need = requiredShift(&d, 1);
         if (need <= shiftAvailable(start) || fabsf(g - toward) < 0.5f) break;
         g += (toward > g) ? fminf(2.0f, toward - g) : -fminf(2.0f, g - toward);
     }
     if (need > shiftAvailable(start)) start = startForShift(need);   // still too far: wait
 
-    const uint32_t half = halfWindowMs(HazardType::Barrier);
-    addEvent(HazardType::Barrier, g, cfg::GAP_PX, start + half);
+    const uint32_t half = halfWindowMs(HazardType::Barrier, start);
+    addEvent(HazardType::Barrier, g, w, start + half);
     lastGateX_ = g;
     lastStaticArrivalMs_ = start + half;
     commit(&d, 1, start, start + 2 * half);
@@ -212,13 +214,15 @@ void PatternSpawner::planGate(int8_t lane, uint16_t afterMs) {
 // Try the pattern's lane first, then the others; pick the first that is
 // fair, else the least demanding one, delayed until it is fair.
 void PatternSpawner::planTraffic(int8_t lane, bool wall, uint16_t afterMs) {
-    const uint32_t half = halfWindowMs(HazardType::Traffic);
     uint32_t start = planEndMs_ + afterMs;
     // No overtaking on screen: a slow car must appear at the top after every
     // faster obstacle already planned has appeared.
-    const uint32_t gap = travelMs(HazardType::Traffic) - travelMs(HazardType::Barrier);
-    if (lastStaticArrivalMs_ && start + half < lastStaticArrivalMs_ + gap)
-        start = lastStaticArrivalMs_ + gap - half;
+    if (lastStaticArrivalMs_) {
+        const uint32_t gap = travelMs(HazardType::Traffic, lastStaticArrivalMs_) -
+                             travelMs(HazardType::Barrier, lastStaticArrivalMs_);
+        const uint32_t half = halfWindowMs(HazardType::Traffic, lastStaticArrivalMs_);
+        if (start + half < lastStaticArrivalMs_ + gap) start = lastStaticArrivalMs_ + gap - half;
+    }
 
     const int first = lane >= 0 ? lane : random(cfg::ROAD_LANES);
     int bestLane = first;
@@ -242,6 +246,7 @@ void PatternSpawner::planTraffic(int8_t lane, bool wall, uint16_t afterMs) {
     }
     if (bestNeed > shiftAvailable(start)) start = startForShift(bestNeed);
 
+    const uint32_t half = halfWindowMs(HazardType::Traffic, start);
     const uint32_t arrival = start + half;
     if (wall) {
         for (int j = 0; j < cfg::ROAD_LANES; j++)
@@ -255,8 +260,8 @@ void PatternSpawner::planTraffic(int8_t lane, bool wall, uint16_t afterMs) {
 // Oil across the whole road: no position constraint, but it must be spaced
 // so the previous jump has landed.
 void PatternSpawner::planOil(uint16_t afterMs) {
-    const uint32_t half = halfWindowMs(HazardType::Oil);
     uint32_t start = planEndMs_ + afterMs;
+    const uint32_t half = halfWindowMs(HazardType::Oil, start);
     if (lastOilArrivalMs_ && start + half < lastOilArrivalMs_ + cfg::OIL_MIN_SPACING_MS)
         start = lastOilArrivalMs_ + cfg::OIL_MIN_SPACING_MS - half;
     const float mid = (cfg::ROAD_LEFT + cfg::ROAD_RIGHT) / 2.0f;
@@ -269,8 +274,8 @@ void PatternSpawner::planOil(uint16_t afterMs) {
 // A row of three coins, always within reach. Not a constraint: the player may
 // ignore them, so afterwards they may be anywhere they could reach.
 void PatternSpawner::planCoins(int8_t lane, uint16_t afterMs) {
-    const uint32_t half = halfWindowMs(HazardType::Coin);
     const uint32_t start = planEndMs_ + afterMs;
+    const uint32_t half = halfWindowMs(HazardType::Coin, start);
     const float reach = shiftAvailable(start);
     float x = lane == ANY  ? (float)random((long)MIN_X, (long)MAX_X + 1)
             : lane == SAME ? lastGateX_
@@ -327,6 +332,14 @@ void PatternSpawner::commit(const Span* d, int n, uint32_t startMs, uint32_t end
 
 bool PatternSpawner::addEvent(HazardType t, float x, float w, uint32_t arrivalMs, uint8_t variant) {
     if (queued_ >= QUEUE) return false;
-    queue_[queued_++] = {t, x, w, arrivalMs, variant};
+    Hazard& e = queue_[queued_++];
+    e = Hazard{};
+    e.type = t;
+    e.x = x;
+    e.w = w;
+    e.arrivalMs = arrivalMs;
+    e.arrivalDist = difficulty::distancePx(arrivalMs);
+    e.variant = variant;
+    e.pattern = patternName_;
     return true;
 }

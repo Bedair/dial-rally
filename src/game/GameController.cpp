@@ -42,10 +42,13 @@ void GameController::enter(GameState s, uint32_t nowMs) {
 
 void GameController::endRun(uint32_t nowMs) {
     const uint32_t score = engine_.score();
-    newBest_ = score > best_;
-    if (newBest_) best_ = score;
-    Serial.printf("[MQ] run over: score %lu, coins %lu, best %lu%s\n", (unsigned long)score,
-                  (unsigned long)engine_.coins(), (unsigned long)best_, newBest_ ? " (new)" : "");
+    newBest_ = scores_.submit(score);
+    Serial.printf("[MQ] run over: score %lu (passed %lu, coins %lu, milestones %lu) in %.1f s, "
+                  "best %lu%s\n",
+                  (unsigned long)score, (unsigned long)engine_.passed(),
+                  (unsigned long)engine_.coins(), (unsigned long)engine_.milestones(),
+                  engine_.timeMs() / 1000.0f, (unsigned long)scores_.best(),
+                  newBest_ ? " (new)" : "");
     enter(GameState::GameOver, nowMs);
 }
 
@@ -133,7 +136,8 @@ void GameController::update(uint32_t nowMs, uint32_t dtMs) {
         case GameState::Playing:
             engine_.update(dtMs, true);
             if (engine_.crashed()) {
-                Serial.printf("[MQ] crash: %s\n", engine_.crashCause());
+                Serial.printf("[MQ] crash: %s (%s) at %.0f px/s\n", engine_.crashCause(),
+                              engine_.crashPattern(), engine_.roadSpeed());
                 endRun(nowMs);
             }
             break;
@@ -145,7 +149,7 @@ void GameController::update(uint32_t nowMs, uint32_t dtMs) {
 void GameController::render(uint32_t nowMs) {
     switch (state_) {
         case GameState::Menu:
-            if (showBest_) display_.drawBest(best_);
+            if (showBest_) display_.drawBest(scores_.best());
             else           display_.drawMenu(selected_);
             break;
         case GameState::Ready: {
@@ -160,7 +164,7 @@ void GameController::render(uint32_t nowMs) {
             display_.drawPaused(engine_, selected_);
             break;
         case GameState::GameOver:
-            display_.drawGameOver(engine_.score(), best_, newBest_, selected_);
+            display_.drawGameOver(engine_.score(), scores_.best(), newBest_, selected_);
             break;
     }
 }
