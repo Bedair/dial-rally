@@ -1,129 +1,180 @@
-// Motion Quest – M0: IMU Day 0 test
+// The Lost Temple – M0: knob input test screen
 //
-// Goal: prove the wrist IMU (Mini 6-axis IMU Unit, MPU6886) works as game
-// input and collect data to tune the flick thresholds in GameConfig.h.
+// Goal: prove the Dial's own knob, button and touchscreen work as game input
+// through KnobSource, and measure the encoder resolution.
 //
-//  - Boot: I2C scan of PORT.A, then WHO_AM_I check. If the chip is not the
-//    expected MPU6886 the screen shows what was read and the driver is not started.
-//  - Screen flashes GREEN "JUMP" on flick up, ORANGE "DUCK" on flick down, with a beep.
-//  - Counters: jumps, ducks, near misses (motion that opened a capture window
-//    but did not fire). Press the Dial button to reset them.
-//  - Serial (115200): one CSV line per capture window with signed peak values:
-//      t_ms,ax_g,ay_g,az_g,gx_dps,gy_dps,gz_dps,action,fire_ms,n,gap_ms,up_dps,down_dps
-//    (n = samples in the window, gap_ms = longest gap between them,
-//     up/down = strongest rate in each direction on the flick axis, so a
-//     wind-up or return swing is visible next to the main flick)
-//    Status lines start with [MQ]; CSV lines have no prefix so they paste
-//    straight into a spreadsheet.
+//  - Rim track with an explorer dot. Turning the knob moves the target angle by
+//    KNOB_DEG_PER_STEP per step; the drawn dot eases toward it (EASE_TAU_MS).
+//  - Press BtnA (or tap the screen): rim flashes and the buzzer beeps.
+//  - Encoder measurement: hold BtnA ~1 s to set a mark, turn the knob exactly
+//    one full turn, hold BtnA again. Serial prints the counts per full turn.
+//    The altar in the centre shows the counts since the mark.
+//  - Serial (115200), all lines prefixed [MQ]: turns, presses, measurement
+//    results, free heap at boot and the average frame time every 5 s.
+//
+// Angle convention (used by the game later too): 0° = 12 o'clock, clockwise +.
 
 #include <M5Dial.h>
-#include <Wire.h>
+#include <math.h>
 #include "config/GameConfig.h"
-#include "input/ImuSource.h"
+#include "input/KnobSource.h"
 
-static ImuSource imu;
-static bool imuOk = false;
-static String portScan;   // shown on screen if the IMU is missing
+static KnobSource knob;
+static M5Canvas canvas(&M5Dial.Display);   // full-frame buffer, pushed once per frame
 
-static M5Canvas canvas(&M5Dial.Display);   // full-frame buffer, pushed once per redraw
+static float targetAngle = 0.0f;   // where the knob says the explorer is, 0..360
+static float drawAngle = 0.0f;     // eased position actually drawn, 0..360
 
-static uint32_t nJump = 0, nDuck = 0, nMiss = 0;
 static uint32_t flashUntilMs = 0;
-static Action flashAction = Action::None;
-// A full-screen push takes ~12 ms and blocks IMU sampling, so routine redraws
-// wait until no capture window is open. Only the flash itself is drawn at once.
-static bool needRedraw = true;
+static Origin flashOrigin = Origin::Button;
+static uint32_t nPress = 0, nTouch = 0;
+
+static bool measuring = false;     // true between the two long presses
+static int32_t markCount = 0;      // KnobSource::rawCount() at the mark
+
+static uint32_t lastFrameMs = 0;
+static uint32_t statFrames = 0, statWorkMs = 0, statStartMs = 0;
 
 // ---------------------------------------------------------------------------
-// Diagnostics
+// Helpers
 // ---------------------------------------------------------------------------
-static String scanI2C() {
-    String found;
-    for (uint8_t a = 1; a < 127; a++) {
-        Wire.beginTransmission(a);
-        if (Wire.endTransmission() == 0) {
-            char buf[6];
-            snprintf(buf, sizeof(buf), "%02X ", a);
-            found += buf;
+static float wrap360(float a) {
+    a = fmodf(a, 360.0f);
+    return a < 0 ? a + 360.0f : a;
+}
+
+// Signed shortest difference b - a, in -180..180.
+static float angleDiff(float a, float b) {
+    float d = wrap360(b - a);
+    return d > 180.0f ? d - 360.0f : d;
+}
+
+// Point on a circle around the screen centre for an angle in degrees.
+static void polar(float deg, float r, int& x, int& y) {
+    const float rad = deg * (float)DEG_TO_RAD;
+    x = cfg::CENTER_X + (int)lroundf(r * sinf(rad));
+    y = cfg::CENTER_Y - (int)lroundf(r * cosf(rad));
+}
+
+// ---------------------------------------------------------------------------
+// Setup helpers
+// ---------------------------------------------------------------------------
+static void createCanvas() {
+    Serial.printf("[MQ] free heap before canvas: %u B\n", (unsigned)ESP.getFreeHeap());
+    canvas.setColorDepth(16);
+    if (!canvas.createSprite(cfg::SCREEN_W, cfg::SCREEN_H)) {
+        Serial.println("[MQ] 16-bit canvas failed, falling back to 8-bit");
+        canvas.setColorDepth(8);
+        canvas.createSprite(cfg::SCREEN_W, cfg::SCREEN_H);
+    }
+    Serial.printf("[MQ] canvas %dx%d @ %d bit, free heap: %u B\n", (int)canvas.width(),
+                  (int)canvas.height(), (int)canvas.getColorDepth(), (unsigned)ESP.getFreeHeap());
+}
+
+// ---------------------------------------------------------------------------
+// Input handling
+// ---------------------------------------------------------------------------
+static void onLongPress() {
+    const int32_t raw = knob.rawCount();
+    if (!measuring) {
+        measuring = true;
+        markCount = raw;
+        Serial.println("[MQ] measure: mark set - turn exactly one full turn, then hold again");
+    } else {
+        measuring = false;
+        const int32_t counts = raw - markCount;
+        Serial.printf("[MQ] measure: %ld counts per full turn (%ld steps at %ld counts/step)\n",
+                      (long)counts, (long)(counts / cfg::ENCODER_COUNTS_PER_STEP),
+                      (long)cfg::ENCODER_COUNTS_PER_STEP);
+    }
+    M5Dial.Speaker.tone(cfg::BEEP_HOLD_HZ, cfg::BEEP_MS * 3);
+}
+
+static void handleInput(uint32_t now) {
+    knob.update(now);
+    ActionEvent ev;
+    while (knob.poll(ev)) {
+        switch (ev.action) {
+            case Action::Turn:
+                targetAngle = wrap360(targetAngle + ev.angleDeg);
+                Serial.printf("[MQ] turn %+ld steps, raw %ld, target %.1f deg\n", (long)ev.steps,
+                              (long)knob.rawCount(), targetAngle);
+                break;
+            case Action::Press:
+                if (ev.origin == Origin::Touch) nTouch++; else nPress++;
+                flashOrigin = ev.origin;
+                flashUntilMs = now + cfg::FLASH_MS;
+                M5Dial.Speaker.tone(ev.origin == Origin::Touch ? cfg::BEEP_TOUCH_HZ
+                                                               : cfg::BEEP_PRESS_HZ,
+                                    cfg::BEEP_MS);
+                Serial.printf("[MQ] press (%s) at %lu ms\n", originName(ev.origin),
+                              (unsigned long)ev.timestampMs);
+                break;
+            case Action::LongPress:
+                onLongPress();
+                break;
+            default:
+                break;
         }
     }
-    if (found.isEmpty()) found = "none";
-    Serial.printf("[MQ] I2C scan PORT.A: %s\n", found.c_str());
-    return found;
 }
 
-static void initImu() {
-    portScan = scanI2C();
-    imuOk = imu.begin();
-    Serial.printf("[MQ] IMU %s\n", imuOk ? "READY" : "NOT READY");
-    if (imuOk) Serial.println("t_ms,ax_g,ay_g,az_g,gx_dps,gy_dps,gz_dps,action,fire_ms,n,gap_ms,up_dps,down_dps");
-    needRedraw = true;
+// Move the drawn angle toward the target. 1 - e^(-dt/tau) makes the easing
+// independent of the frame rate.
+static void easeExplorer(uint32_t dtMs) {
+    const float k = 1.0f - expf(-(float)dtMs / cfg::EASE_TAU_MS);
+    const float d = angleDiff(drawAngle, targetAngle);
+    drawAngle = fabsf(d) < 0.05f ? targetAngle : wrap360(drawAngle + d * k);
 }
 
 // ---------------------------------------------------------------------------
-// Screens
+// Rendering
 // ---------------------------------------------------------------------------
-static void drawNoImu() {
-    canvas.setTextColor(TFT_RED);
-    canvas.setTextSize(2);
-    canvas.drawString(imu.present() ? "WRONG IMU" : "NO IMU", 120, 70);
+static void render(uint32_t now) {
+    const bool flashing = flashUntilMs && (int32_t)(now - flashUntilMs) < 0;
+    const uint16_t flashColor = flashOrigin == Origin::Touch ? TFT_CYAN : TFT_GOLD;
 
-    canvas.setTextColor(TFT_WHITE);
-    canvas.setTextSize(1);
-    char line[48];
-    snprintf(line, sizeof(line), "WHO_AM_I 0x%02X  (want 0x%02X)", imu.whoAmI(),
-             cfg::IMU_WHO_AM_I_EXPECTED);
-    canvas.drawString(line, 120, 105);
-    snprintf(line, sizeof(line), "reg 0x00: 0x%02X  -> %s", imu.reg00(),
-             Mpu6886::chipName(imu.whoAmI(), imu.reg00()));
-    canvas.drawString(line, 120, 122);
-    canvas.drawString(String("PORT.A: ") + portScan, 120, 145);
-    canvas.drawString("press button to retry", 120, 175);
-}
+    canvas.fillScreen(flashing ? canvas.color565(40, 30, 0) : TFT_BLACK);
 
-static void drawIdle() {
-    canvas.setTextColor(TFT_GOLD);
-    canvas.setTextSize(2);
-    canvas.drawString("FLICK!", 120, 55);
+    // Rim track with a tick every 30° (12 o'clock tick brighter).
+    const int rOut = cfg::RIM_RADIUS + cfg::RIM_WIDTH / 2;
+    const int rIn = cfg::RIM_RADIUS - cfg::RIM_WIDTH / 2;
+    canvas.fillArc(cfg::CENTER_X, cfg::CENTER_Y, rOut, rIn, 0, 360,
+                   flashing ? flashColor : canvas.color565(70, 60, 45));
+    for (int deg = 0; deg < 360; deg += 30) {
+        int x0, y0, x1, y1;
+        polar(deg, rIn, x0, y0);
+        polar(deg, rOut, x1, y1);
+        canvas.drawLine(x0, y0, x1, y1, deg == 0 ? TFT_WHITE : canvas.color565(110, 95, 70));
+    }
 
-    canvas.setTextColor(TFT_GREEN);
-    canvas.drawString(String("Jump ") + nJump, 120, 95);
-    canvas.setTextColor(TFT_ORANGE);
-    canvas.drawString(String("Duck ") + nDuck, 120, 125);
-    canvas.setTextColor(TFT_DARKGREY);
-    canvas.drawString(String("Miss ") + nMiss, 120, 155);
-
-    canvas.setTextSize(1);
-    char line[40];
-    snprintf(line, sizeof(line), "MPU6886 0x%02X  i2c err %lu", imu.whoAmI(),
-             (unsigned long)imu.i2cErrors());
-    canvas.drawString(line, 120, 190);
-}
-
-static void drawFlash(Action a) {
-    canvas.fillScreen(a == Action::Jump ? TFT_GREEN : TFT_ORANGE);
-    canvas.setTextColor(TFT_BLACK);
-    canvas.setTextSize(4);
-    canvas.drawString(actionName(a), 120, 120);
-}
-
-static void render() {
-    canvas.fillScreen(TFT_BLACK);
+    // Altar: counts since the mark while measuring, else raw count.
+    canvas.fillCircle(cfg::CENTER_X, cfg::CENTER_Y, cfg::ALTAR_RADIUS, canvas.color565(45, 40, 32));
     canvas.setTextDatum(middle_center);
-    if (!imuOk)            drawNoImu();
-    else if (flashUntilMs) drawFlash(flashAction);
-    else                   drawIdle();
-    canvas.pushSprite(0, 0);
-}
+    canvas.setTextColor(measuring ? TFT_GREEN : TFT_WHITE);
+    canvas.setTextSize(2);
+    const int32_t shown = measuring ? knob.rawCount() - markCount : knob.rawCount();
+    canvas.drawNumber(shown, cfg::CENTER_X, cfg::CENTER_Y - 6);
+    canvas.setTextSize(1);
+    canvas.setTextColor(TFT_LIGHTGREY);
+    canvas.drawString(measuring ? "since mark" : "raw count", cfg::CENTER_X, cfg::CENTER_Y + 14);
 
-// ---------------------------------------------------------------------------
-// Logging
-// ---------------------------------------------------------------------------
-static void logRecord(const FlickRecord& r) {
-    Serial.printf("%lu,%.2f,%.2f,%.2f,%.0f,%.0f,%.0f,%s,%ld,%u,%lu,%.0f,%.0f\n", (unsigned long)r.tMs,
-                  r.peakA[0], r.peakA[1], r.peakA[2], r.peakG[0], r.peakG[1], r.peakG[2],
-                  actionName(r.action), (long)r.fireMs, (unsigned)r.samples,
-                  (unsigned long)r.maxGapMs, r.upPeak, r.downPeak);
+    // Labels between altar and rim.
+    char line[32];
+    snprintf(line, sizeof(line), "btn %lu  touch %lu", (unsigned long)nPress, (unsigned long)nTouch);
+    canvas.drawString(line, cfg::CENTER_X, cfg::CENTER_Y + 56);
+    canvas.drawString(measuring ? "turn 1x, hold to stop" : "hold = measure", cfg::CENTER_X,
+                      cfg::CENTER_Y - 56);
+
+    // Target marker (thin) and eased explorer dot.
+    int tx, ty, ex, ey;
+    polar(targetAngle, rIn - 6, tx, ty);
+    canvas.fillCircle(tx, ty, 2, TFT_DARKGREY);
+    polar(drawAngle, cfg::RIM_RADIUS, ex, ey);
+    canvas.fillCircle(ex, ey, flashing ? cfg::EXPLORER_RADIUS + 3 : cfg::EXPLORER_RADIUS,
+                      flashing ? TFT_WHITE : TFT_ORANGE);
+
+    canvas.pushSprite(0, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -131,57 +182,37 @@ void setup() {
     auto c = M5.config();
     M5Dial.begin(c, true, false);   // encoder on, RFID off
     Serial.begin(115200);
-    delay(800);                     // setup only: USB CDC + Grove unit power-up
+    delay(500);                     // setup only: give USB CDC time to attach
 
-    canvas.createSprite(240, 240);
-    Wire.begin(cfg::PORTA_SDA, cfg::PORTA_SCL, cfg::I2C_FREQ_HZ);
-    initImu();
-    render();
+    M5Dial.Speaker.setVolume(cfg::SPEAKER_VOLUME);
+    createCanvas();
+    knob.begin();
+    Serial.printf("[MQ] M0 knob test ready, %.3f deg/step, ease tau %.0f ms\n",
+                  cfg::KNOB_DEG_PER_STEP, cfg::EASE_TAU_MS);
+
+    lastFrameMs = statStartMs = millis();
 }
 
 void loop() {
-    M5Dial.update();
     const uint32_t now = millis();
+    if (now - lastFrameMs < cfg::FRAME_MS) return;   // frame cap, no delay()
+    const uint32_t dt = now - lastFrameMs;
+    lastFrameMs = now;
 
-    if (M5Dial.BtnA.wasPressed()) {
-        if (!imuOk) {
-            initImu();              // retry without re-flashing
-        } else {
-            nJump = nDuck = nMiss = 0;
-            Serial.println("[MQ] counters reset");
-            needRedraw = true;
-        }
-    }
+    M5Dial.update();
+    handleInput(now);
+    easeExplorer(dt);
+    render(now);
+    if (flashUntilMs && (int32_t)(now - flashUntilMs) >= 0) flashUntilMs = 0;
 
-    if (imuOk) {
-        ActionEvent ev;
-        if (imu.poll(ev)) {
-            if (ev.action == Action::Jump) nJump++;
-            else                           nDuck++;
-            flashAction = ev.action;
-            flashUntilMs = now + cfg::FLASH_MS;
-            M5Dial.Speaker.tone(ev.action == Action::Jump ? cfg::BEEP_JUMP_HZ : cfg::BEEP_DUCK_HZ,
-                                cfg::BEEP_MS);
-            render();               // immediately: this is the latency being measured
-            needRedraw = false;
-        }
-
-        FlickRecord rec;
-        if (imu.takeRecord(rec)) {
-            logRecord(rec);
-            if (rec.action == Action::None) {
-                nMiss++;
-                needRedraw = true;
-            }
-        }
-    }
-
-    if (flashUntilMs && (int32_t)(now - flashUntilMs) >= 0) {
-        flashUntilMs = 0;
-        needRedraw = true;
-    }
-    if (needRedraw && !imu.capturing()) {
-        needRedraw = false;
-        render();
+    // Frame-time stats: work time per frame (input + render + push).
+    statWorkMs += millis() - now;
+    statFrames++;
+    if (now - statStartMs >= 5000) {
+        Serial.printf("[MQ] frames %lu in %lu ms, avg work %.1f ms/frame\n",
+                      (unsigned long)statFrames, (unsigned long)(now - statStartMs),
+                      (float)statWorkMs / statFrames);
+        statFrames = statWorkMs = 0;
+        statStartMs = now;
     }
 }
