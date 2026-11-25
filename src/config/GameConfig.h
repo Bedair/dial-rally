@@ -7,13 +7,31 @@
 
 #include <stdint.h>
 
+// Soak test build (platformio.ini env "soak" sets -DMQ_SOAK=1): an autopilot
+// plays unattended for hours to check long-run stability (docs/TESTING.md).
+#ifndef MQ_SOAK
+#define MQ_SOAK 0
+#endif
+
 namespace cfg {
 
 // ---------------------------------------------------------------------------
-// Debug
+// Debug and validation
 // ---------------------------------------------------------------------------
-constexpr bool DEBUG_LOG = true;             // frame-time stats + state changes on serial
-constexpr uint32_t FRAME_STATS_MS = 5000;    // frame-time log interval
+constexpr bool SOAK_TEST = MQ_SOAK != 0;
+constexpr bool DEBUG_LOG = true;             // frame-time stats, state changes, run results
+// Per-event lines (plan, jump, coin, knob glitch): off in the soak build so
+// hours of logging stay readable.
+constexpr bool VERBOSE_LOG = DEBUG_LOG && !SOAK_TEST;
+constexpr uint32_t FRAME_STATS_MS = 5000;    // short frame-time line interval
+constexpr uint32_t SESSION_REPORT_MS = 60000;   // session summary since boot
+constexpr uint32_t FRAME_BUDGET_MS = 33;     // 30 fps: frames slower than this are counted
+
+// Soak autopilot: each run it drives fairly, then lets go of the knob after
+// a random time so it crashes and exercises game over, restart and NVS.
+constexpr uint32_t SOAK_GIVE_UP_MIN_MS = 45000;
+constexpr uint32_t SOAK_GIVE_UP_MAX_MS = 240000;
+constexpr uint32_t SOAK_PRESS_EVERY_MS = 1500;  // menu / game-over "press"
 
 // ---------------------------------------------------------------------------
 // Knob (rotary encoder) and button
@@ -144,7 +162,9 @@ constexpr uint32_t GAMEOVER_INPUT_DELAY_MS = 400;
 // ---------------------------------------------------------------------------
 // Feedback (M5)
 // ---------------------------------------------------------------------------
-constexpr uint8_t SPEAKER_VOLUME = 110;      // 0..255; the buzzer is loud, keep it moderate
+// 0..255; the buzzer is loud, keep it moderate. Silent in the soak build
+// (the sound code still runs, only the volume is 0).
+constexpr uint8_t SPEAKER_VOLUME = SOAK_TEST ? 0 : 110;
 constexpr uint32_t CRASH_FLASH_MS = 70;      // white flash at the moment of impact
 constexpr float SHAKE_PX = 7.0f;             // screen shake at impact, decays to 0
 constexpr uint32_t SHAKE_MS = 450;

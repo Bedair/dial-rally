@@ -37,6 +37,8 @@ public:
     void render(uint32_t nowMs);                  // draw the current state (no push)
 
     GameState state() const { return state_; }
+    const GameEngine& engine() const { return engine_; }   // read-only (autopilot, stats)
+    uint32_t runs() const { return runs_; }                 // runs finished since boot
 
 private:
     void handle(const ActionEvent& ev, uint32_t nowMs);
@@ -63,4 +65,5 @@ private:
 
     bool newBest_ = false;        // last run set a new high score
     bool fanfareDone_ = false;
+    uint32_t runs_ = 0;
 };

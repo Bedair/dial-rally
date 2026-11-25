@@ -44,6 +44,18 @@ python tools/png2rgb565.py     # PNGs -> src/display/sprites/*.h (RGB565 + faint
 
 To change the art, edit a PNG in any pixel editor (keep its size; transparent pixels stay transparent) and run only `png2rgb565.py`. Running `make_sprites.py` again overwrites the PNGs with the drawn-in-code originals.
 
+## Testing
+
+Full checklist and the long-run soak test: [docs/TESTING.md](docs/TESTING.md).
+
+```bash
+test/sim/run.sh                              # host simulation: fairness + collisions, seconds
+pio run -e soak -t upload                    # soak firmware: the game plays itself for hours
+pio device monitor -e soak --filter log2file
+```
+
+Every obstacle sequence is generated to be reachable at half a knob turn per second (see `src/game/Patterns.cpp`); the simulation checks this with an autopilot limited to exactly that speed.
+
 ## Status
 
 - [x] M0 Knob input (encoder, button, touch)
@@ -52,8 +64,8 @@ To change the art, edit a PNG in any pixel editor (keep its size; transparent pi
 - [x] M3 Mechanics (collisions, jump, fair patterns)
 - [x] M4 Scoring, difficulty curve, high score in NVS
 - [x] M5 Sound and feedback
-- [ ] M6 Art pass (in test)
-- [ ] M7 Validation
+- [x] M6 Art pass (original sprites, PNG converter)
+- [ ] M7 Validation (tools done; hardware checklist and soak run pending)
 - [ ] Hackster write-up
 
 ## License

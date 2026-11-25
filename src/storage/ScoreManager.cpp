@@ -1,9 +1,11 @@
 #include "storage/ScoreManager.h"
+#include "config/GameConfig.h"
 #include <Arduino.h>
 #include <Preferences.h>
 
 namespace {
-constexpr const char* NVS_NAMESPACE = "dialrally";
+// The soak test keeps its own high score, so the player's best is never touched.
+constexpr const char* NVS_NAMESPACE = cfg::SOAK_TEST ? "dialrally_sk" : "dialrally";
 constexpr const char* KEY_BEST = "best";
 }
 

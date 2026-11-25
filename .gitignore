@@ -5,3 +5,4 @@
 .vscode/ipch
 *.bak
 .DS_Store
+platformio-device-monitor-*.log

@@ -165,7 +165,7 @@ void PatternSpawner::planPattern() {
     do { p = random(NUM_PATTERNS); } while (p == lastPattern_);
     lastPattern_ = p;
     patternName_ = PATTERNS[p].name;
-    if (cfg::DEBUG_LOG) Serial.printf("[MQ] plan %s\n", patternName_);
+    if (cfg::VERBOSE_LOG) Serial.printf("[MQ] plan %s\n", patternName_);
 
     for (int i = 0; i < PATTERNS[p].count; i++) {
         const Step& s = PATTERNS[p].steps[i];

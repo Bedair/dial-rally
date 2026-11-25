@@ -52,9 +52,10 @@ void GameController::enter(GameState s, uint32_t nowMs) {
 void GameController::endRun(uint32_t nowMs) {
     const uint32_t score = engine_.score();
     newBest_ = scores_.submit(score);
-    Serial.printf("[MQ] run over: score %lu (passed %lu, coins %lu, milestones %lu) in %.1f s, "
+    runs_++;
+    Serial.printf("[MQ] run %lu over: score %lu (passed %lu, coins %lu, milestones %lu) in %.1f s, "
                   "best %lu%s\n",
-                  (unsigned long)score, (unsigned long)engine_.passed(),
+                  (unsigned long)runs_, (unsigned long)score, (unsigned long)engine_.passed(),
                   (unsigned long)engine_.coins(), (unsigned long)engine_.milestones(),
                   engine_.timeMs() / 1000.0f, (unsigned long)scores_.best(),
                   newBest_ ? " (new)" : "");
@@ -114,7 +115,7 @@ void GameController::handle(const ActionEvent& ev, uint32_t nowMs) {
                 engine_.steer(ev.steps);
             } else if (ev.action == Action::Press) {
                 engine_.jump();       // the sound plays on take-off (EV_JUMP)
-                if (cfg::DEBUG_LOG) Serial.printf("[MQ] jump (%s)\n", originName(ev.origin));
+                if (cfg::VERBOSE_LOG) Serial.printf("[MQ] jump (%s)\n", originName(ev.origin));
             } else if (ev.action == Action::LongPress) {
                 audio_.play(Sfx::Confirm, nowMs);
                 enter(GameState::Paused, nowMs);

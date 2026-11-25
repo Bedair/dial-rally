@@ -70,13 +70,15 @@ History (for the write-up): v1.3 "The Lost Temple" (explorer on a ring) and v1.4
 src/
   main.cpp
   config/GameConfig.h
-  input/      Actions.h, KnobSource
-  game/       GameController, GameEngine, Player, Hazard, Patterns, Difficulty
-  display/    DisplayManager
+  input/      Actions.h, KnobSource, AutoPilotSource (soak test)
+  game/       GameController, GameEngine, Player, Hazard, Patterns, Difficulty, AutoPilot
+  display/    DisplayManager, FrameStats, Sprite, sprites/ (generated)
   storage/    ScoreManager
   audio/      AudioManager
 assets/sprites/   source PNGs
-tools/            png -> RGB565 header converter
+tools/            make_sprites.py (original art), png2rgb565.py (PNG -> RGB565 headers)
+test/sim/         host simulation of the game logic (fairness checks)
+docs/TESTING.md   test checklist, soak test, results
 ```
 
 ## Conventions

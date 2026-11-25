@@ -103,7 +103,7 @@ void GameEngine::checkCollisions() {
                     coins_++;
                     h.active = false;
                     events_ |= EV_COIN;
-                    if (cfg::DEBUG_LOG) Serial.printf("[MQ] coin (%lu)\n", (unsigned long)coins_);
+                    if (cfg::VERBOSE_LOG) Serial.printf("[MQ] coin (%lu)\n", (unsigned long)coins_);
                 }
                 break;
         }

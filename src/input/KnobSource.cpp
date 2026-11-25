@@ -24,7 +24,7 @@ void KnobSource::update(uint32_t nowMs) {
         if ((delta == 2 || delta == -2) && recent && lastDir_ != 0 && dir != lastDir_) {
             delta = -delta;   // driver guessed the direction wrong
             glitches_++;
-            if (cfg::DEBUG_LOG) Serial.printf("[MQ] knob: corrected %+ld glitch (#%lu)\n",
+            if (cfg::VERBOSE_LOG) Serial.printf("[MQ] knob: corrected %+ld glitch (#%lu)\n",
                                               (long)-delta, (unsigned long)glitches_);
         } else {
             lastDir_ = dir;
